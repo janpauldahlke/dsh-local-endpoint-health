@@ -1,16 +1,22 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-24 23:15 — PLAN approved, Q1–Q10 locked, **SPEC + 10 phase files written**
-**Phase:** **READY TO BUILD** → start at `SPEC.md` §0, then `phases/P0-scaffold.md`
+**Updated:** 2026-09-24 23:58 — **P0 DONE** (verified, committed) · **P1 NEXT**
+**Phase:** **P1 (vertical slice)** — poll `/health` → route → pane reachable/unreachable/idle
 
-## How to rewrite this file (your only memory)
+## Session log
 
-Keep **≤55 lines** including this header. **Rewrite, don't append** — it must always describe *now*. Sections: `LAW` (copy verbatim, never edit) · `Session log` (≤6 lines, newest first: "Pn: did X → verified by Y") · `Checkpoints` ([x]/[ ] over P0–P9) · `Next 3` · `Blockers` · `pending-human` · `Gotchas`.
+- P0 done: dual-face scaffold verified on `:3090` — host route 200 `{"ok":true,…}`, client in combo URL (3510 B, wrapper id === package name), dump-config row present → all 11 checks ✅, see `ACCEPTANCE.md`
+- Client 404 mystery resolved: entries only served via `??` combo URL; single-file form 404s by design. `&amp;` in HTML hrefs must be unescaped before curl
+- `dsh web` implies web profile: never pass `--profile` again; boot with clean env (`-u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID`)
+- Host entry needs `main: "lib/index.js"` — harness defaults to `index.js` and fails without it
+- Register handler shape: `{ kind: 'exact', path, handler }`; two `ctx.effect()` (sampler + unregister)
+- P1 prep: collector seam exists — `collectSnapshot()` in `src/host/collect.ts`, swap-ready
 
-- **"Next 3" is the most important block** — if the session dies right after you write, that's what saves the run. First item must be actionable immediately.
-- Never write "in flight" without naming the exact file/function you were mid-edit on.
-- Log `pending-human` items **as you create them**, not at the end — you will not remember them.
-- After a compaction, re-read this file + the current phase file (~3k) and nothing else. Verify state against disk (`git log --oneline`, `ls src/`), not memory.
+## Next 3
+
+1. [ ] P1: read `phases/P1-vertical-slice.md` + `SPEC.md` §0/§4 (AC1–AC13); build `/health` poller → `src/host/collect.ts` real snapshot → pane shows reachable/unreachable/idle (3s stale dim)
+2. [ ] Verify with curl against live llama-server on `:8080` (read-only!) + a dead port for unreachable; keep 1 s poll, backoff later in P5
+3. [ ] Commit P1; update STATUS + ACCEPTANCE
 
 ## LAW
 
@@ -27,18 +33,13 @@ Keep **≤55 lines** including this header. **Rewrite, don't append** — it mus
 ## Checkpoints
 
 - [x] PLAN approved + de-ballasted · Q1–Q10 LOCKED (§11) · AC1–AC13 (§7)
-- [x] Live probes: auth required, `/v1/slots` **404 trap**, `/metrics` **200** (after human restart w/ `--metrics`), counters are **cumulative**, rate gauges read **0 idle**, Ollama `/api/ps` = `{"models":[]}`
+- [x] Live probes: auth required, `/v1/slots` **404 trap**, `/metrics` **200**, counters **cumulative**, rate gauges **0 idle**, Ollama `/api/ps` = `{"models":[]}`
 - [x] `~/.local/bin/llama-dsh` patched: `--metrics` default (escape `LLAMA_METRICS=0`), 3 exec paths, `bash -n` + stub dry-run verified
-- [x] **`SPEC.md`** (thin orchestrator + context discipline) · **`STYLE.md`** (palette/geometry extracted from shipped blueprint) · **`phases/P0–P9`**
-- [ ] P0 scaffold → P1 vertical slice → … → P9 ship
+- [x] **`SPEC.md`** · **`STYLE.md`** · **`phases/P0–P9`**
+- [x] **P0 scaffold** — activates on `:3090`; `lib/` committed (no-toolchain install); browser tab render = pending-human
+- [ ] P1 vertical slice → P2 slot meat → … → P9 ship
 
-## Next 3
-
-1. [ ] Read `SPEC.md` §0 + `ENV.md` + `STYLE.md`, then **`phases/P0-scaffold.md`** — package activates on `:3090`
-2. [ ] P1 vertical slice: poll `/health` → route → pane shows reachable/unreachable/idle
-3. [ ] P2 slot meat — the phase that justifies the project
-
-## State / gotchas
+## Next-3 detail & gotchas
 
 - **Config = origin, never DSH `baseURL`** (`.../v1` → `/v1/slots` 404 while `/v1/health` 200 = silent-meatless, AC5b).
 - **Key precedence:** explicit → env `LLAMA_API_KEY` → none. Never log/render the key. 1s poll healthy, ~10s on 401 (AC10).
@@ -47,6 +48,7 @@ Keep **≤55 lines** including this header. **Rewrite, don't append** — it mus
 - **Placement:** rightbar tab **and** dock chip; chip hides while pane open (reference-counted `paneState`).
 - **Backends:** llama.cpp full · Ollama thin (live, verifiable) · vLLM doc-sourced **unverified, excluded from acceptance**.
 - **Styling:** match gpu-monitor exactly — `color-mix(currentColor)` theming, two-tier palette, `tabular-nums`, 3s stale dim. See `STYLE.md`.
-- Vision currently OFF on the server (no `--mmproj`) while `settings.yaml` advertises `input: [text, image]`. Human aware, accepted for now. Do not restart to "fix".
 
-Keep ≤55 lines.
+## pending-human
+
+- **P0 browser check (first morning task):** open token URL (see `ACCEPTANCE.md` §Morning check); confirm rightbar tab `dsh-slot-health` renders placeholder. Server-side activation fully proven; only browser execution unverified.

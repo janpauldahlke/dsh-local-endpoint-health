@@ -1,0 +1,53 @@
+{
+  "name": "dsh-slot-health",
+  "version": "0.1.0",
+  "description": "Rightbar slot-health tab for local dsh endpoint health (placeholder skeleton; P1+ adds sampling and rendering).",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "main": "lib/index.js",
+  "files": [
+    "lib/",
+    "lib/client.js",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs && tsc --noEmit",
+    "test": "node --test"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-module-registry": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-web-gpu-context": "^0.1.6-alpha.2"
+  },
+  "peerDependencies": {
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "esbuild": "^0.27.0",
+    "react": "^19.2.7",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
