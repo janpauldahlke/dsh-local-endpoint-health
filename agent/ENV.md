@@ -124,14 +124,20 @@ Note `n_prompt_tokens` reads ~8369 **while idle**: that is retained prompt conte
 
 ## Acceptance runtime
 
+Authoritative steps live in SKILL.md §"Acceptance port `:3090`" (check-before-boot included). Summary:
+
 ```sh
-# ensure the port is free first, then:
-dsh web --profile web --port 3090 --no-open
+ss -ltnp | grep ':3090'   # if already yours, REUSE it — do not boot a second
+env -u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID dsh web --port 3090 --no-open
 ```
 
+- **No `--profile web` here** — `dsh web` already implies the web profile (SKILL correction #1).
+  `--profile` is correct for `dsh plugin …` and `dsh --dump-config` only.
 - Primary operator UI stays up on `:3080`. Inference stays up on `:8080` / `:11434`.
-- Verify composition: `dsh --profile web --dump-config | grep -i endpoint-health`
-- Verify route: `curl -s http://127.0.0.1:3090/api/<your-route>`
+- Verify composition: `dsh --profile web --dump-config | grep -i slot-health`
+- Verify route: `curl -s http://127.0.0.1:3090/api/dsh-slot-health`
+- A **stale bundle answers `{"ok":true}`** exactly like fresh code. After rebuilding the host half,
+  confirm what you're hitting is the new build before trusting any result.
 - Coexistence check: gpu-monitor pane and this pane both healthy on `:3090`.
 
 ## Blueprint (copy from, do not re-derive)

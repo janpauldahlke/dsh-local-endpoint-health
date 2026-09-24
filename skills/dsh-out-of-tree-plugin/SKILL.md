@@ -20,9 +20,9 @@ Pin APIs to the **installed** `dsh` version / `ENV.md`. Do not invent seats.
 1. **Sacred processes** — Never kill/restart the operator’s primary `dsh web`,
    llama / local inference, or ollama unless the human explicitly says so in a
    new message. Read `ENV.md` when present.
-2. **Acceptance = second port** — Self-test with
-   `dsh web --profile web --port <free> --no-open` (often `3090`). Do not bounce
-   the human’s primary session (often `:3080`) to “see if it works.”
+2. **Acceptance = second port** — Self-test with `dsh web --port <free> --no-open` (often `3090`).
+   Do not bounce the human’s primary session (often `:3080`) to “see if it works.”
+   No `--profile web` — `dsh web` already implies it (see Corrections #1).
 3. **Default path = installable bundle**, not `--patch`.
 4. **Rebuild before boot** — `lib/index.js` and `lib/client.js` must exist.
    Missing client is a silent-or-loud activation failure; always `pnpm build` /
@@ -125,13 +125,25 @@ These **contradict or extend** earlier text in this skill — trust these:
 3. **Client entries are only served via the `??` combo URL.** Requesting `lib/client.js` as a single file returns **404 by design** — that is *not* a bug and not proof your client is broken. Grab the combo URL from the boot HTML and `curl` that. Note `&amp;` in HTML hrefs must be unescaped before curling.
 4. **Web-server route registration shape:** `{ kind: 'exact', path, handler }`, with two separate `ctx.effect()` calls (sampler + unregister).
 
-## Acceptance port (stop re-discovering)
+## Acceptance port `:3090` — check before booting (this has bitten us)
+
+An acceptance server may **already be running** from an earlier attempt. Before booting:
 
 ```sh
-# ensure port free, then:
-env -u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID dsh web --port 3090 --no-open
-# logs → /tmp or nohup; open the printed token URL in a browser
+ss -ltnp | grep ':3090'          # who holds it?
+curl -s -m 3 http://127.0.0.1:3090/api/dsh-slot-health
 ```
+
+- **Already yours** (`node …/bin.js web --port 3090 --no-open`) → **reuse it, do not boot a second.**
+  Rebuilding `lib/` is picked up by client HMR (byte change); a host-half change may need a restart
+  of *that* pid only. Verify the route reflects your latest build before trusting what you see —
+  a stale bundle answering `{"ok":true}` looks exactly like success.
+- **Free** → boot: `env -u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID dsh web --port 3090 --no-open`
+- **`EADDRINUSE`** → something holds it. Identify by pid as above. **Never** `pkill dsh` / `pkill node`
+  to free a port — that pattern also matches the **sacred `:3080` primary** (a different pid, same
+  cmdline shape). Kill only the specific acceptance pid you verified, by number.
+
+Identify the sacred one before killing anything: `ss -ltnp | grep ':3080'` → that pid is **never** touched.
 
 - Primary operator UI stays up (often `:3080`).
 - Inference stays up (often llama `:8080`, ollama `:11434`) — see `ENV.md`.

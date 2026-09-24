@@ -118,7 +118,8 @@ curl -s -m 3 -H "Authorization: Bearer $K" http://127.0.0.1:8080/slots | head -c
 curl -s -m 3 -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $K" http://127.0.0.1:8080/v1/slots   # 404 — the trap
 curl -s -m 3 -H "Authorization: Bearer $K" http://127.0.0.1:8080/metrics | rg -v '^#'  # gauges/counters
 curl -s -m 3 http://127.0.0.1:11434/api/ps | head -c 200                               # ollama thin
-dsh web --profile web --port 3090 --no-open                                           # acceptance boot
+ss -ltnp | rg ':3090'                                                                # who holds it? reuse if yours
+env -u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID dsh web --port 3090 --no-open       # acceptance boot (no --profile)
 dsh --profile web --dump-config | rg -i slot-health                                    # composition check
 ```
 

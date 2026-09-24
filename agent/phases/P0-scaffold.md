@@ -43,7 +43,7 @@ Create at **repo root** (`/home/hagbard/dev/dsh-local-endpoint-health/`), not in
 
 1. `node build.mjs` → both `lib/index.js` and `lib/client.js` exist, non-empty.
 2. `dsh --profile web --dump-config | rg -i slot-health` → the row is present.
-3. Boot acceptance: confirm `:3090` free, then `dsh web --profile web --port 3090 --no-open`.
+3. Boot acceptance: check `:3090` first — if it already runs *your* plugin, **reuse it** (a stale bundle answers `{"ok":true}` just like fresh code, so don't trust an old route response). If free: `env -u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID dsh web --port 3090 --no-open`. **No `--profile web`** — `dsh web` implies it (SKILL correction #1). Never `pkill dsh` to free the port: that pattern matches the sacred `:3080` primary too.
 4. `curl -s http://127.0.0.1:3090/api/dsh-slot-health` → your stub JSON. **This proves the host half works.**
 5. **`pending-human`:** opening the browser to confirm the rightbar tab renders. **You have no browser** — this step is the only true proof of client activation, and you cannot perform it. Record it in `ACCEPTANCE.md` as the *first* morning check.
 
