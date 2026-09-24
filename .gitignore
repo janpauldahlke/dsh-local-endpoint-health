@@ -1,2 +1,18 @@
-agent/**
-skills/**
+# Dependencies / build toolchain — never commit
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# Scratch / local artifacts
+tools/.tmp/
+*.log
+.DS_Store
+
+# NOTE: `agent/` and `skills/` are deliberately TRACKED so the overnight
+# agent's STATUS.md / NOTES.md checkpoints are durable in git history
+# (long-horizon protocol rule 4). They are private working briefs: the human
+# strips them before any public publish. See agent/SPEC.md §2.
+#
+# NOTE: `lib/` is deliberately TRACKED (built output committed) so
+# `dsh plugin add` works without a local TS/esbuild toolchain — same choice as
+# the dsh-gpu-monitor-nvml blueprint.
