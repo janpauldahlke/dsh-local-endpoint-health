@@ -8,7 +8,9 @@
 
 ---
 
-## Verified inputs (live probe, 2026-09-24 22:50, pid 42466)
+## Verified inputs (live probe 2026-09-24 22:50, re-verified 01:06 after restart)
+
+> PIDs are **not stable** — the human restarts the server. Never trust a pid written in a doc; always resolve it live: `P=$(pgrep -x llama-server|head -1)`.
 
 `GET {origin}/metrics` → **401 without key, 200 with key**. Prometheus text format, `llamacpp:` prefix. Actual values captured after ~2 requests:
 

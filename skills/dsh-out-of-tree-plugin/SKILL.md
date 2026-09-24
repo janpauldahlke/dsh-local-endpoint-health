@@ -116,11 +116,20 @@ documented HMR). Hard-refresh the browser for client changes.
 Verify composition: `dsh --profile web --dump-config` | search your `id` /
 package name. API routes: `curl -s http://127.0.0.1:<port>/api/...`.
 
+## Corrections learned the hard way (slot-health P0, 2026-09-24)
+
+These **contradict or extend** earlier text in this skill — trust these:
+
+1. **`dsh web` already implies the web profile.** Do **not** pass `--profile web` to it; boot with a clean env instead: `env -u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID dsh web --port 3090 --no-open`. (`--profile` is still correct for `dsh plugin …` and `dsh --dump-config`.)
+2. **`package.json` needs `"main": "lib/index.js"`.** The harness defaults to `index.js` and the host half fails to load without `main`, even when `exports` is correct.
+3. **Client entries are only served via the `??` combo URL.** Requesting `lib/client.js` as a single file returns **404 by design** — that is *not* a bug and not proof your client is broken. Grab the combo URL from the boot HTML and `curl` that. Note `&amp;` in HTML hrefs must be unescaped before curling.
+4. **Web-server route registration shape:** `{ kind: 'exact', path, handler }`, with two separate `ctx.effect()` calls (sampler + unregister).
+
 ## Acceptance port (stop re-discovering)
 
 ```sh
 # ensure port free, then:
-dsh web --profile web --port 3090 --no-open
+env -u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID dsh web --port 3090 --no-open
 # logs → /tmp or nohup; open the printed token URL in a browser
 ```
 

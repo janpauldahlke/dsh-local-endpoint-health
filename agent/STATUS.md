@@ -1,54 +1,52 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-24 23:58 — **P0 DONE** (verified, committed) · **P1 NEXT**
+**Updated:** 2026-09-25 01:15 — **P0 DONE** (`090a524`) · **P1 RESTARTED FROM ZERO**
 **Phase:** **P1 (vertical slice)** — poll `/health` → route → pane reachable/unreachable/idle
 
-## Session log
+Laws live in **`AGENTS.md`** (auto-loaded, survives compaction) — not repeated here.
+Facts live in **`ENV.md`**; style in **`STYLE.md`**; packaging gotchas in **SKILL "Corrections learned the hard way"**.
 
-- P0 done: dual-face scaffold verified on `:3090` — host route 200 `{"ok":true,…}`, client in combo URL (3510 B, wrapper id === package name), dump-config row present → all 11 checks ✅, see `ACCEPTANCE.md`
-- Client 404 mystery resolved: entries only served via `??` combo URL; single-file form 404s by design. `&amp;` in HTML hrefs must be unescaped before curl
-- `dsh web` implies web profile: never pass `--profile` again; boot with clean env (`-u DSH_WEB_URL -u DSH_SHELL -u DSH_SESSION_ID`)
-- Host entry needs `main: "lib/index.js"` — harness defaults to `index.js` and fails without it
-- Register handler shape: `{ kind: 'exact', path, handler }`; two `ctx.effect()` (sampler + unregister)
-- P1 prep: collector seam exists — `collectSnapshot()` in `src/host/collect.ts`, swap-ready
+## ⚠ Read first: P1 was restarted
+
+Previous P1 attempt was interrupted having **written nothing to disk**. It read ~8 files, designed in
+memory, hit the output token limit twice, compaction returned an **empty summary**. All seven `src/`
+files are still **P0's** — no partial P1 work exists to salvage. Start P1 fresh.
+
+Lesson, now law: **read ≤3–4 files, then WRITE.** Never announce a complete design without a file
+written in the same turn. Smallest file first → commit → continue.
+
+## New since P0
+
+- **`AGENTS.md`** at repo root — auto-loaded workspace instructions. Read it.
+- **SKILL** now has "Corrections learned the hard way" (the four P0 packaging discoveries: combo-URL
+  404 by design, `dsh web` implies profile, `main` required, route handler shape). Read before touching
+  `package.json` / `build.mjs` / client code.
+- **llama-server restarted 01:06** by human. Resolve pid live (`pgrep -x llama-server`) — never trust a
+  pid in a doc. Flags now `--reasoning on --reasoning-budget 2048 --metrics -np 1`. Re-verified:
+  `/health` 200 open; `/slots` + `/metrics` 200 with key `local`. **Reasoning ON, 2048 budget** →
+  expect visible thinking; pace for it.
 
 ## Next 3
 
-1. [ ] P1: read `phases/P1-vertical-slice.md` + `SPEC.md` §0/§4 (AC1–AC13); build `/health` poller → `src/host/collect.ts` real snapshot → pane shows reachable/unreachable/idle (3s stale dim)
-2. [ ] Verify with curl against live llama-server on `:8080` (read-only!) + a dead port for unreachable; keep 1 s poll, backoff later in P5
-3. [ ] Commit P1; update STATUS + ACCEPTANCE
-
-## LAW
-
-1. Disk+git only. Chat lies.
-2. **Git: `commit` after every verified phase. `push` FORBIDDEN** — `origin` exists, do not use it. No force-push, no remote/tag changes. Publishing is a human gate.
-3. Sacred: never kill `:3080`/`:8080`/`:11434`. Acceptance on `:3090`. Never restart llama-server to gain a flag. **Never load an Ollama model** (starves the coding agent's GPUs). See [`ENV.md`](ENV.md).
-4. `agent/**` + `skills/**` **are tracked** (un-ignored 2026-09-24) → commit STATUS/NOTES/SPEC updates **with** the code they describe. They are private briefs: the human strips them before any publish. You never push.
-5. **Context discipline is a hard requirement** — 32k slot, ~14–16k usable. Read `SPEC.md` §0 first. Never read `PLAN.md` wholesale (~7.1k tokens); one phase file at a time.
-
-## Name — LOCKED
-
-**`dsh-slot-health`** everywhere it's a product identifier. Canonical table in [`ENV.md`](ENV.md) §"Canonical identifiers". Repo *directory* stays `dsh-local-endpoint-health` — a filesystem fact, **not** drift; do not rename it. Repo/package mismatch is a **publish-time** human action.
+1. [ ] Read `AGENTS.md` + SKILL "Corrections" (≤2 files), then `phases/P1-vertical-slice.md`
+2. [ ] **Write first:** snapshot type in `src/shared/types.ts` → commit; then `src/host/collect.ts`
+       `/health` poller (~2s timeout, never throws) → commit
+3. [ ] Route + client poller; verify via `curl :3090/api/dsh-slot-health` + dead-port origin for
+       `unreachable`. Pane render = `pending-human`
 
 ## Checkpoints
 
-- [x] PLAN approved + de-ballasted · Q1–Q10 LOCKED (§11) · AC1–AC13 (§7)
-- [x] Live probes: auth required, `/v1/slots` **404 trap**, `/metrics` **200**, counters **cumulative**, rate gauges **0 idle**, Ollama `/api/ps` = `{"models":[]}`
-- [x] `~/.local/bin/llama-dsh` patched: `--metrics` default (escape `LLAMA_METRICS=0`), 3 exec paths, `bash -n` + stub dry-run verified
-- [x] **`SPEC.md`** · **`STYLE.md`** · **`phases/P0–P9`**
-- [x] **P0 scaffold** — activates on `:3090`; `lib/` committed (no-toolchain install); browser tab render = pending-human
-- [ ] P1 vertical slice → P2 slot meat → … → P9 ship
-
-## Next-3 detail & gotchas
-
-- **Config = origin, never DSH `baseURL`** (`.../v1` → `/v1/slots` 404 while `/v1/health` 200 = silent-meatless, AC5b).
-- **Key precedence:** explicit → env `LLAMA_API_KEY` → none. Never log/render the key. 1s poll healthy, ~10s on 401 (AC10).
-- **No timestamps in `/slots`** → busy-age/TTFT latched host-side on `is_processing` false→true. Idle ≠ zero prompt tokens (~8369 retained) → use `is_processing`.
-- **`/metrics` = enrichment only**, degrades invisibly. Counters lifetime, not per-request (AC12).
-- **Placement:** rightbar tab **and** dock chip; chip hides while pane open (reference-counted `paneState`).
-- **Backends:** llama.cpp full · Ollama thin (live, verifiable) · vLLM doc-sourced **unverified, excluded from acceptance**.
-- **Styling:** match gpu-monitor exactly — `color-mix(currentColor)` theming, two-tier palette, `tabular-nums`, 3s stale dim. See `STYLE.md`.
+- [x] PLAN approved · Q1–Q10 LOCKED · AC1–AC13 · SPEC/STYLE/phases P0–P9 · `AGENTS.md`
+- [x] Live probes: auth required, `/v1/slots` **404 trap**, `/metrics` **200**, counters **cumulative**,
+      rate gauges **0 idle**, Ollama `/api/ps` = `{"models":[]}`
+- [x] `~/.local/bin/llama-dsh`: `--metrics` default (`LLAMA_METRICS=0` escape), 3 exec paths, dry-run verified
+- [x] **P0 scaffold** — activates on `:3090`; `lib/` committed; browser render = pending-human
+- [ ] **P1 vertical slice** ← you are here
+- [ ] P2 slot meat → P3 wedged → P4 errors → P5 auth → P6 chip → P7 metrics → P8 backends → P9 ship
 
 ## pending-human
 
-- **P0 browser check (first morning task):** open token URL (see `ACCEPTANCE.md` §Morning check); confirm rightbar tab `dsh-slot-health` renders placeholder. Server-side activation fully proven; only browser execution unverified.
+- **P0 browser check (first morning task):** open token URL (see `ACCEPTANCE.md` §Morning check);
+  confirm rightbar tab renders the placeholder. Server-side activation proven; browser execution unverified.
+
+Keep ≤55 lines. Rewrite, don't append.

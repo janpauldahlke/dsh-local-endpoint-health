@@ -19,7 +19,7 @@
 | --- | --- |
 | CLI | `dsh` → `/home/hagbard/.local/bin/dsh` |
 | Version | **`0.1.6-alpha.2`** (verified: `dsh --version`) |
-| Running instance | `node /home/hagbard/dev/deepseek-harness/apps/cli/lib/bin.js web` (pid varies) on `:3080` |
+| Running instance | `node /home/hagbard/dev/deepseek-harness/apps/cli/lib/bin.js web` on `:3080` |
 | Target profile | `web` (`~/.dsh/profiles/web/`) |
 | Product surface | `dsh web` only (not Electron desktop for v0) |
 
@@ -91,7 +91,7 @@ Consequences for the design — **all of these were probed, not assumed:**
 | `-np 1`, single slot | argv | "slot busy" == "no new chat can start". The headline insight of the whole pane. |
 | `-c 32768` | argv | `n_ctx` pressure has a known denominator. |
 | Speculative **draft-mtp** active | argv + `/props` | `/slots` reports `speculative: true`; can be shown as a fact, not decoded as "second model". |
-| **`/metrics` → 200 VERIFIED** (2026-09-24 22:50, pid 42466 restarted with `--metrics`) | probed | Live payload captured below. 401 without key, **200 with key**. `--metrics` is now default in `~/.local/bin/llama-dsh` (escape `LLAMA_METRICS=0`), all 3 exec paths, `bash -n` + stub-server dry-run verified. |
+| **`/metrics` → 200 VERIFIED** (re-verified 2026-09-25 01:06 after restart with `--metrics`) | probed | Live payload captured below. 401 without key, **200 with key**. `--metrics` is now default in `~/.local/bin/llama-dsh` (escape `LLAMA_METRICS=0`), all 3 exec paths, `bash -n` + stub-server dry-run verified. |
 | PP/TG rates are **direct gauges**, not derivatives | `tools/server/README.md` §GET /metrics | `llamacpp:prompt_tokens_seconds` + `llamacpp:predicted_tokens_seconds` are Gauges — **no delta math needed**. (An earlier draft of this doc wrongly claimed rates required differencing counters; corrected.) |
 | ⚠ **Rate gauges read `0` while idle** | probed | Both `*_tokens_seconds` gauges were `0` on an idle server despite `prompt_seconds_total 11.22` / `tokens_predicted_seconds_total 6.10` being non-zero. So a rate of 0 is **ambiguous**: idle, or genuinely stalled. Never render `0 tok/s` as "server is stuck" — cross-check `requests_processing` / `is_processing` first. If the pane wants rates while idle, derive them from the `_total` counters instead. |
 | `timings_per_token: false` | `/props` | Irrelevant to `/metrics`; only affects per-token timing inside `/slots` params. |
@@ -108,7 +108,7 @@ Consequences for the design — **all of these were probed, not assumed:**
 | `/props` | **401** | **200** | model + default gen settings |
 | `/v1/slots` | 404 | **404** | ⚠ does not exist — see trap above |
 | `/v1/props` | 404 | **404** | ⚠ does not exist |
-| `/metrics` | **401** | **200** ✓ | verified live 22:50, pid 42466 |
+| `/metrics` | **401** | **200** ✓ | re-verified 01:06 |
 | `/v1/models` | 200 | 200 | thin-backend fallback signal |
 
 ### `/slots` payload actually available (single slot, array of 1)
