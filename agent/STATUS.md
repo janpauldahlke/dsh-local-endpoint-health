@@ -25,10 +25,9 @@ written in the same turn. Smallest file first → commit → continue.
   pid in a doc. Flags now `--reasoning on --reasoning-budget 2048 --metrics -np 1`. Re-verified:
   `/health` 200 open; `/slots` + `/metrics` 200 with key `local`. **Reasoning ON, 2048 budget** →
   expect visible thinking; pace for it.
-- **`:3090` is OCCUPIED as of 01:20** — `node …/bin.js web --port 3090 --no-open` (pid 87515, booted
-  00:03 by the interrupted P1 run), still serving the **P0 stub** `{"ok":true,…}`. **Reuse it or verify
-  by pid before killing** (SKILL.md §"Acceptance port"). The sacred `:3080` primary is a *different*
-  pid (24993) with the same cmdline shape — never `pkill dsh`.
+- **`:3090` OCCUPIED as of 01:20** — `node …/bin.js web --port 3090 --no-open` (pid 87515, booted 00:03
+  by the interrupted P1 run), still serving the **P0 stub**. Reuse it or verify by pid before killing
+  (SKILL.md §"Acceptance port"). Sacred `:3080` is a *different* pid (24993), same cmdline shape.
 
 ## Next 3
 
