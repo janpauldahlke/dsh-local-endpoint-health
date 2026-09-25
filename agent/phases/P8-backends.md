@@ -4,6 +4,11 @@
 
 **Read:** this file only. **Not** `PLAN.md`.
 
+> **Detailed spec: [`agent/specs/ollama-backend.md`](../specs/ollama-backend.md)** — doc-grounded
+> Ollama endpoint shapes, engine fingerprinting + display design, vLLM stub, implementation slices.
+> **Safety:** do NOT start/load/pull an Ollama model (it can OOM the agent's own process); probe
+> `:11434` read-only (GET `/api/version`, `/api/ps`, `/api/tags`) only.
+
 **Requires:** P4 — thin backends must degrade through the existing error/state vocabulary.
 
 ---

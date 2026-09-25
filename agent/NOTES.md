@@ -214,3 +214,32 @@ Probed live at 09:33 on the restarted server (human restarted 09:32):
   counter-decrease restart (no counter moves backwards across the outage).
 - Cause D: empty-body test expects `null` (no prior section to stale).
 - Result: `tsc --noEmit` clean, `node build.mjs` clean, **68/68 tests pass**.
+
+## P8 Ollama backend — design decisions  (decided 2026-09-25, spec only, no code)
+
+Full spec: `agent/specs/ollama-backend.md` (doc-grounded: Ollama main-branch API reference +
+read-only probes of live `:11434` / Ollama 0.22.1).
+- **Ollama has NO `/health` and NO `/metrics`** (verified live: both 404; `GET /` → 200 plain text
+  "Ollama is running"). Its reachability oracle must be `GET /api/version` →
+  `{"version":"0.22.1"}` — NOT the llama `/health` path. No Prometheus surface ⇒ no metrics card.
+- **Ollama has no slots.** The llama busy/idle/wedged vocabulary must not be emitted for it.
+  "Model loaded" (`/api/ps` non-empty) is a **resident** state (kept `keep_alive`, default 5m),
+  NOT "busy" — label it `loaded`. `{"models":[]}` is its own honest state (up, nothing loaded):
+  not `idle`, not an error.
+- **Engine display (user ask):** `snapshot.backend` drives (a) a pane-top label chip
+  (`llama.cpp · full` / `ollama · limited` / `vllm · unverified` / `unknown engine`) and (b) an
+  engine-word prefix on the collapsed dock chip (e.g. `ollama · loaded`). The tier hint keeps a
+  thin/doc-sourced backend from looking verified. Chip stays stable-width (no live numbers).
+- **Fingerprint by response shape, never guess silently:** llama = `/health` `status:"ok"` +
+  `/slots` bare array; ollama = `/api/version` JSON with string `version`; vllm = `/health` 2xx +
+  `vllm:` series in `/metrics`. Optional `config.backend` override, default `auto`.
+- **vLLM = stub:** doc-sourced, not installed on this host, excluded from acceptance; keep behind
+  the same `Backend` interface. `kv_cache_usage_perc` is a 0–1 fraction (×100 is ours);
+  `--disable-log-stats` → empty `/metrics` must read "no data", never "idle".
+- **Safety (hard rule from the human):** never start/load/pull an Ollama model — it can OOM the
+  agent's own process. Probe `:11434` read-only (GET only); the human does the model load for the
+  pending-human acceptance step.
+- **Ollama `/api/ps` model shape (docs, live-verified keys):** `name, model, size (bytes),
+  digest, details{parent_model, format, family, families, parameter_size, quantization_level},
+  expires_at (RFC3339), size_vram (bytes)`. `/api/tags` model shape: `name, model, modified_at,
+  size, digest, details{…}` (12 models on this host).
