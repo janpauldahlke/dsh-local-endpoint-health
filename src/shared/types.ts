@@ -136,20 +136,33 @@ export interface MetricsSection {
    * tokens). `lifetime` is cumulative since server start; `lastRequest` is the
    * delta across the most recent completed request's `id_task` boundary (P2
    * latch). Both `null` when no draft tokens were generated (spec off, or no
-   * completed request yet).
+   * completed request yet). Each figure carries its denominator (`sample` =
+   * generated draft tokens), so the client can render "0.87 (n=30)" — a bare
+   * ratio without n is untrustworthy (AC12).
    */
-  draftAcceptance: { lifetime: number | null; lastRequest: number | null }
+  draftAcceptance: { lifetime: DraftFigure | null; lastRequest: DraftFigure | null }
   /**
    * Mean accepted draft length (accepted tokens per draft attempt), same two
-   * scopes as `draftAcceptance`.
+   * scopes as `draftAcceptance`; `sample` counts draft attempts.
    */
-  draftMeanLen: { lifetime: number | null; lastRequest: number | null }
+  draftMeanLen: { lifetime: DraftFigure | null; lastRequest: DraftFigure | null }
   /**
    * Per-position acceptance of the last completed request
-   * (position → accepted/generated), `null` when there was no completed
-   * request with draft activity. MTP diagnostic; optional to render.
+   * (position → accepted/generated). `[]` — not `null` — when no request has
+   * completed or one completed with no per-position movement; the client
+   * renders nothing for an empty list. MTP diagnostic; optional to render.
    */
-  perPosLastRequest: { position: number; acceptance: number | null }[] | null
+  perPosLastRequest: { position: number; acceptance: number }[]
+}
+
+/**
+ * A ratio plus its denominator. `value` is the ratio itself; `sample` is the
+ * count of the denominator (draft tokens generated, or draft attempts) so the
+ * client can show how much data backs the figure.
+ */
+export interface DraftFigure {
+  value: number
+  sample: number
 }
 
 /**

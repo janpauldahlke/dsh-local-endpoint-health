@@ -155,8 +155,20 @@ export function advanceMetrics(
   }
   state.endpointDownTicks = 0
 
-  // --- Skipped probe (capability `no`) ⇒ nothing to render. ---
-  if (probe === null) return null
+  // --- Firm `no` verdict: probes are ignored entirely, section stays gone.
+  // (The collector already skips probing while `no`; this keeps the engine
+  // honest if a probe slips through.) ---
+  if (state.capability === 'no') return null
+
+  // --- Skipped probe (fetch deliberately skipped this tick): nothing new to
+  // render — a known-`yes` endpoint keeps its last section stale rather than
+  // dropping rows; no verdict yet ⇒ `null`. ---
+  if (probe === null) {
+    if (state.capability === 'yes' && state.lastSection !== null) {
+      return staleSection(state, 'metrics not available on this tick')
+    }
+    return null
+  }
 
   // --- Fetch failed (refused / timeout): stale or keep probing. ---
   if (probe.status === null) {
@@ -350,6 +362,16 @@ function countersDecreased(a: CounterSet, b: CounterSet): boolean {
   return false
 }
 
+/** Round a 0..1 ratio to 3 decimals (display precision for acceptance). */
+function round3(x: number): number {
+  return Math.round(x * 1000) / 1000
+}
+
+/** Round a token count / small ratio to 1 decimal. */
+function round1(x: number): number {
+  return Math.round(x * 10) / 10
+}
+
 /** Sum of the per-position accepted counters within one set (or a delta). */
 function sumPerPos(perPos: Record<number, number>): number {
   let sum = 0
@@ -386,15 +408,24 @@ function buildSection(
   }
 
   // --- Lifetime draft figures (cumulative since server start). ---
+  // Each figure carries its denominator (`sample`) so the client can show
+  // how much data backs the ratio (AC12). Ratios are rounded to 3 decimals
+  // (0..1 scale); mean length to 1 decimal (token counts).
   let draftAcceptance: MetricsSection['draftAcceptance'] = { lifetime: null, lastRequest: null }
   let draftMeanLen: MetricsSection['draftMeanLen'] = { lifetime: null, lastRequest: null }
-  let perPosLastRequest: MetricsSection['perPosLastRequest'] = null
+  let perPosLastRequest: MetricsSection['perPosLastRequest'] = []
 
   if (counters.draftTokens > 0) {
-    draftAcceptance.lifetime = counters.accepted / counters.draftTokens
+    draftAcceptance.lifetime = {
+      value: round3(counters.accepted / counters.draftTokens),
+      sample: counters.draftTokens,
+    }
   }
   if (counters.drafts > 0) {
-    draftMeanLen.lifetime = sumPerPos(counters.perPos) / counters.drafts
+    draftMeanLen.lifetime = {
+      value: round1(sumPerPos(counters.perPos) / counters.drafts),
+      sample: counters.drafts,
+    }
   }
 
   // --- Delta'd figures across the last completed request's id_task boundary. ---
@@ -403,14 +434,16 @@ function buildSection(
     const dDraft = span.end.draftTokens - span.start.draftTokens
     const dAccepted = span.end.accepted - span.start.accepted
     const dDrafts = span.end.drafts - span.start.drafts
-    if (dDraft > 0) draftAcceptance.lastRequest = dAccepted / dDraft
+    if (dDraft > 0) {
+      draftAcceptance.lastRequest = { value: round3(dAccepted / dDraft), sample: dDraft }
+    }
     if (dDrafts > 0) {
-      draftMeanLen.lastRequest = perPosSumDelta(span) / dDrafts
+      draftMeanLen.lastRequest = { value: round1(perPosSumDelta(span) / dDrafts), sample: dDrafts }
       const delta = perPosDelta(span.start.perPos, span.end.perPos)
       perPosLastRequest = Object.keys(delta)
         .map(Number)
         .sort((x, y) => x - y)
-        .map((position) => ({ position, acceptance: delta[position] / dDrafts }))
+        .map((position) => ({ position, acceptance: round1(delta[position] / dDrafts) }))
     }
   }
 

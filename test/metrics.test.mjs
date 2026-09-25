@@ -42,7 +42,7 @@ const http = (status) => ({ status, text: '', error: null })
 const netError = (error) => ({ status: null, text: null, error })
 
 /** Minimal HealthSnapshot shape — the engine only reads `state` + `slots`. */
-const snap = (state = 'ok', slots = null) => ({ state, slots })
+const snap = (state = 'idle', slots = null) => ({ state, slots })
 
 const T0 = 1000
 
@@ -64,11 +64,14 @@ test('unknown + 401: settles to no (verified :8080 behavior without key)', () =>
   assert.equal(st.capability, 'no')
 })
 
-test('unknown + network error: settles to no', () => {
+test('unknown + network error: transient — keep probing, no verdict yet', () => {
   const st = createMetricsState()
   const section = advanceMetrics(st, netError('connect ECONNREFUSED'), snap(), T0)
   assert.equal(section, null)
-  assert.equal(st.capability, 'no')
+  // A failed fetch from `unknown` is not evidence /metrics is absent —
+  // frozen decision: keep probing (NOTES §P7 BLOCKER, cause C).
+  assert.equal(st.capability, 'unknown')
+  assert.equal(shouldFetchMetrics(st), true)
 })
 
 test('unknown + 200 with parseable body: settles to yes with a fresh section', () => {
@@ -90,12 +93,13 @@ test('unknown + 200 with parseable body: settles to yes with a fresh section', (
   assert.deepEqual(section.perPosLastRequest, [])
 })
 
-test('unknown + 200 but empty body: stays yes, section is stale, probing continues', () => {
+test('unknown + 200 but empty body: settles to yes, nothing to show yet, probing continues', () => {
   const st = createMetricsState()
   const s1 = advanceMetrics(st, ok({}), snap(), T0)
   assert.equal(st.capability, 'yes')
-  assert.equal(s1.fresh, false)
-  assert.match(s1.error, /no parseable samples/)
+  // No prior section exists to keep stale — the engine returns null,
+  // not a synthesized empty section (NOTES §P7 BLOCKER, cause D).
+  assert.equal(s1, null)
   assert.equal(shouldFetchMetrics(st), true)
 })
 
@@ -146,21 +150,24 @@ test('null probe with no section yet: null', () => {
   assert.equal(advanceMetrics(st, null, snap(), T0 + 1000), null)
 })
 
-test('endpoint down: null section while down, derived state dropped', () => {
+test('endpoint down: null section while down, down tick counted', () => {
   const st = createMetricsState()
   advanceMetrics(st, ok({ predict: 100 }), snap(), T0)
-  const s1 = advanceMetrics(st, ok({ predict: 101 }), snap('down'), T0 + 1000)
+  const s1 = advanceMetrics(st, null, snap('unreachable'), T0 + 1000)
   assert.equal(s1, null)
-  assert.equal(st.baseline, null) // derived state dropped on down
+  assert.equal(st.endpointDownTicks, 1) // down tick counted
 })
 
 test('endpoint down for 3 ticks then back: re-opens and re-settles to yes', () => {
   const st = createMetricsState()
   advanceMetrics(st, ok({ predict: 100 }), snap(), T0)
-  advanceMetrics(st, ok({ predict: 101 }), snap('down'), T0 + 1000)
-  advanceMetrics(st, ok({ predict: 102 }), snap('down'), T0 + 2000)
-  advanceMetrics(st, ok({ predict: 103 }), snap('down'), T0 + 3000) // 3rd down tick
-  const back = advanceMetrics(st, ok({ predict: 10, prompt: 5 }), snap('ok'), T0 + 4000)
+  // Unreachable ticks carry no probe (the collector skips the fetch); the
+  // counter never moves backwards here, so the re-open below exercises the
+  // down-tick path, not restart detection.
+  advanceMetrics(st, null, snap('unreachable'), T0 + 1000)
+  advanceMetrics(st, null, snap('unreachable'), T0 + 2000)
+  advanceMetrics(st, null, snap('unreachable'), T0 + 3000) // 3rd down tick
+  const back = advanceMetrics(st, ok({ predict: 101, prompt: 5 }), snap(), T0 + 4000)
   assert.equal(st.capability, 'yes')
   assert.ok(back.fresh)
   assert.equal(back.tokensPerSec, null) // window re-established, no movement yet
@@ -170,8 +177,8 @@ test('endpoint down for 3 ticks then back: re-opens and re-settles to yes', () =
 test('fewer than 3 down ticks: no re-open, probe still ignored while down', () => {
   const st = createMetricsState()
   advanceMetrics(st, ok({ predict: 100 }), snap(), T0)
-  const s1 = advanceMetrics(st, ok({ predict: 101 }), snap('down'), T0 + 1000)
-  const s2 = advanceMetrics(st, ok({ predict: 102 }), snap('down'), T0 + 2000)
+  const s1 = advanceMetrics(st, null, snap('unreachable'), T0 + 1000)
+  const s2 = advanceMetrics(st, null, snap('unreachable'), T0 + 2000)
   assert.equal(s1, null)
   assert.equal(s2, null)
   // Endpoint still down: capability unchanged, no section.
@@ -233,13 +240,13 @@ test('restart: request span state is dropped too', () => {
   advanceMetrics(
     st,
     ok({ predict: 100, draft: 10 }),
-    snap('ok', [{ id: 1, state: 'busy', idTask: 'a' }]),
+    snap('idle', [{ id: 1, state: 'busy', idTask: 'a' }]),
     1000,
   )
   const s = advanceMetrics(
     st,
     ok({ predict: 3, draft: 2 }), // counters went backwards ⇒ restart
-    snap('ok', []),
+    snap('idle', []),
     3000,
   )
   assert.equal(s.draftAcceptance.lastRequest, null)
@@ -253,14 +260,14 @@ test('per-request: slot goes idle ⇒ span finalized with request-scoped figures
   advanceMetrics(
     st,
     ok({ draft: 100, accepted: 90, drafts: 10, perPos: { 0: 60, 1: 30 } }),
-    snap('ok', [{ id: 1, state: 'busy', idTask: 'task-1' }]),
+    snap('idle', [{ id: 1, state: 'busy', idTask: 'task-1' }]),
     1000,
   )
   // Mid-flight: slot still busy with the same id_task — no span yet.
   const mid = advanceMetrics(
     st,
     ok({ draft: 115, accepted: 103, drafts: 11, perPos: { 0: 69, 1: 34 } }),
-    snap('ok', [{ id: 1, state: 'busy', idTask: 'task-1' }]),
+    snap('idle', [{ id: 1, state: 'busy', idTask: 'task-1' }]),
     2000,
   )
   assert.equal(mid.draftAcceptance.lastRequest, null)
@@ -268,7 +275,7 @@ test('per-request: slot goes idle ⇒ span finalized with request-scoped figures
   const done = advanceMetrics(
     st,
     ok({ draft: 130, accepted: 116, drafts: 12, perPos: { 0: 78, 1: 38 } }),
-    snap('ok', [{ id: 1, state: 'idle', idTask: null }]),
+    snap('idle', [{ id: 1, state: 'idle', idTask: null }]),
     3000,
   )
   // Span: draft 100→130, accepted 90→116, drafts 10→12, perPos 0: 60→78, 1: 30→38.
@@ -290,13 +297,13 @@ test('per-request: id_task change while busy finalizes the span', () => {
   advanceMetrics(
     st,
     ok({ draft: 10, accepted: 9, drafts: 1, perPos: { 0: 9 } }),
-    snap('ok', [{ id: 1, state: 'busy', idTask: 'a' }]),
+    snap('idle', [{ id: 1, state: 'busy', idTask: 'a' }]),
     1000,
   )
   const s = advanceMetrics(
     st,
     ok({ draft: 25, accepted: 20, drafts: 2, perPos: { 0: 20 } }),
-    snap('ok', [{ id: 1, state: 'busy', idTask: 'b' }]),
+    snap('idle', [{ id: 1, state: 'busy', idTask: 'b' }]),
     3000,
   )
   assert.equal(s.draftAcceptance.lastRequest.value, 0.733) // 11/15 rounded
@@ -308,19 +315,19 @@ test('per-request: span persists across later idle ticks until a new request com
   advanceMetrics(
     st,
     ok({ draft: 100, accepted: 90, drafts: 10, perPos: { 0: 60, 1: 30 } }),
-    snap('ok', [{ id: 1, state: 'busy', idTask: 'task-1' }]),
+    snap('idle', [{ id: 1, state: 'busy', idTask: 'task-1' }]),
     1000,
   )
   const done = advanceMetrics(
     st,
     ok({ draft: 130, accepted: 116, drafts: 12, perPos: { 0: 78, 1: 38 } }),
-    snap('ok', [{ id: 1, state: 'idle', idTask: null }]),
+    snap('idle', [{ id: 1, state: 'idle', idTask: null }]),
     3000,
   )
   const later = advanceMetrics(
     st,
     ok({ draft: 130, accepted: 116, drafts: 12, perPos: { 0: 78, 1: 38 } }),
-    snap('ok', []),
+    snap('idle', []),
     5000,
   )
   assert.equal(later.draftAcceptance.lastRequest.value, done.draftAcceptance.lastRequest.value)
@@ -331,8 +338,8 @@ test('per-request: span persists across later idle ticks until a new request com
 
 test('fallback: slots unavailable — requests_processing 1→0 closes the span', () => {
   const st = createMetricsState()
-  advanceMetrics(st, ok({ processing: 1, draft: 50 }), snap('ok', null), 1000)
-  const s = advanceMetrics(st, ok({ processing: 0, draft: 80 }), snap('ok', null), 3000)
+  advanceMetrics(st, ok({ processing: 1, draft: 50 }), snap('idle', null), 1000)
+  const s = advanceMetrics(st, ok({ processing: 0, draft: 80 }), snap('idle', null), 3000)
   assert.ok(s.draftAcceptance.lastRequest)
   assert.equal(s.draftAcceptance.lastRequest.sample, 30) // 80-50
   assert.equal(s.draftAcceptance.lastRequest.value, 0) // no accepted counter in feed
@@ -340,19 +347,19 @@ test('fallback: slots unavailable — requests_processing 1→0 closes the span'
 
 test('fallback: slots become available mid-request — idle slots close the span', () => {
   const st = createMetricsState()
-  advanceMetrics(st, ok({ processing: 1, draft: 50 }), snap('ok', null), 1000)
+  advanceMetrics(st, ok({ processing: 1, draft: 50 }), snap('idle', null), 1000)
   // Anchored via fallback (empty tasks); slots now available: ends iff nothing busy.
   const mid = advanceMetrics(
     st,
     ok({ processing: 1, draft: 60 }),
-    snap('ok', [{ id: 1, state: 'busy', idTask: 'z' }]),
+    snap('idle', [{ id: 1, state: 'busy', idTask: 'z' }]),
     2000,
   )
   assert.equal(mid.draftAcceptance.lastRequest, null)
   const s = advanceMetrics(
     st,
     ok({ processing: 0, draft: 80 }),
-    snap('ok', [{ id: 1, state: 'idle', idTask: null }]),
+    snap('idle', [{ id: 1, state: 'idle', idTask: null }]),
     3000,
   )
   assert.equal(s.draftAcceptance.lastRequest.sample, 30)

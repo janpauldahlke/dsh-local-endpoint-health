@@ -194,3 +194,23 @@ Probed live at 09:33 on the restarted server (human restarted 09:32):
   from P3 (`wedged`) was tuned on the old model. Re-derive, don't inherit.
 - Server was **down** at review time (no `llama-server` pid, `:8080` dead, `:3080`/`:3090` gone;
   only ollama `:11434`). Nothing above is probe-verified yet.
+
+## Cause A IMPLEMENTED + B/C/D resolved (2026-09-25, P7 engine commit)
+
+- `{value, sample}` adopted in `types.ts` (`DraftFigure`) + `metrics.ts` + tests. `sample` =
+  denominator (draft tokens for acceptance, draft attempts for mean-len). Rounding: acceptance
+  ratios to 3 decimals (0..1 scale), mean-len / per-pos to 1 decimal — matches test expectations
+  (26/30 → 0.867; 116/12 → 9.7).
+- **`perPosLastRequest` — deliberate narrowing of the frozen note:** frozen said `null` when no
+  request completed, but frozen tests 4/19 assert `[]` in exactly those scenarios. Tests win:
+  the field is now **always an array** — `[]` when nothing completed or no per-position movement.
+  Client renders nothing for `[]`. Type: `{ position, acceptance }[]` (no `| null`).
+- Cause C impl-side additions (defensive, per frozen note): `advanceMetrics` returns `null`
+  immediately when `capability === 'no'`; a skipped probe (`null`) while `yes` keeps the last
+  section **stale** (`'metrics not available on this tick'`) instead of vanishing it.
+- Cause B fixtures: `'down'` → `'unreachable'`, `snap('ok')` → `snap('idle')` (canonical
+  `EndpointState`), down-tick tests now pass `null` probes (collector skips the fetch while the
+  endpoint is down). Test 12 rebuilt so the re-open fires via the down-tick path, not a
+  counter-decrease restart (no counter moves backwards across the outage).
+- Cause D: empty-body test expects `null` (no prior section to stale).
+- Result: `tsc --noEmit` clean, `node build.mjs` clean, **68/68 tests pass**.
