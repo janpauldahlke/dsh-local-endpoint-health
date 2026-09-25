@@ -39,3 +39,22 @@ Machine-verified (dsh CLI now `0.1.6-alpha.2` — `--profile`/`--dump-config` ar
 5. Rightbar tab `dsh-slot-health`: idle + "updated N s ago" ticks every second; per-slot rows render; gpu-monitor chip still works alongside.
 6. Failure states (optional — edit `cordis.patch.yml` `config.origin` or env key, `node build.mjs`, restart `:3090`, reload):
    dead port → **unreachable** + age; bad `LLAMA_API_KEY` → **auth required**; silent >3 s → **stale** (dimmed). Chat UI usable throughout.
+
+## P7 — metrics engine + pane rows (agent-verified 2026-09-25, `8216613` engine / client commit)
+Machine-verified: 68/68 tests; `tsc` + build clean. Served `:3090` bundle (23 KB combo, 200, fresh rev) contains the
+new client code (`server metrics`, `acc·lifetime`, `deriveChip`); live route returns the new engine shape with real
+spec data, e.g. `draftAcceptance.lifetime: { value: 0.649, sample: 26394 }`, `draftMeanLen.lifetime: { value: 1.9,
+sample: 8798 }`, `perPosLastRequest: []` (always an array). Pane-header chip now consumes `deriveChip` (same as the
+dock chip) instead of raw endpoint-level `snapshot.state`.
+- ⏳ pending-human (open the token URL from `/tmp/dsh-3090.log`, line 1):
+  1. Pane shows a **server metrics** section below the slot rows: `prompt /s`, `decode /s`, `deferred`, `active`,
+     `ctx peak` rows appear only while non-null (idle server ⇒ fewer rows, no "0" rows, no layout hole).
+  2. Spec rows are **labeled lifetime vs last req** and show their denominator, e.g. `acc · lifetime 0.649 (n=26394)`;
+     after a completed request `acc · last req` / `len · last req` / `per-pos · last` (e.g. `p0 9 · p1 4`) appear.
+  3. **Header chip = dock chip**: while a request runs, the pane header says `busy …` (blue) exactly like the dock
+     chip — not green "idle" (the pre-fix defect).
+  4. AC6: the section reads as *server* counters (window-labeled rates, queue, ctx peak, spec diagnostics), not a
+     clone of the gpu-monitor tok/s pane; both panes can be open at once.
+  5. Stale metrics (transient fetch failure while `yes`) keep last values dimmed with the error line.
+- Note: server restarts (model swap) reset the counters — `lifetime` figures restart from small samples; that is
+  correct behavior, not a bug.

@@ -6,10 +6,10 @@
  * advances even while the endpoint is stable. Self-contained (no props):
  * the slot registry mounts it bare.
  *
- * State → color (shared/types.ts):
- *   idle        → green  (endpoint up and serving)
- *   unreachable → red    (route refused / timeout / 5xx)
- *   unknown     → gray   (reachable, but response not recognizable)
+ * Header state → color/label comes from `slotState.deriveChip()` — the same
+ * pure derivation the dock chip uses, so the two surfaces cannot disagree
+ * (the header previously rendered the raw endpoint-level `snapshot.state`,
+ * which showed green "idle" while a slot was busy).
  *
  * Two distinct failure layers:
  *   transport error — the plugin route itself failed → "no data — <error>"
@@ -25,17 +25,13 @@
 import { useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
-import type { EndpointState, SlotSample } from '../shared/types.ts'
+import type { SlotSample } from '../shared/types.ts'
 import { setPaneOpen } from './paneState.ts'
+import { deriveChip } from './slotState.ts'
+import { MetricsBlock } from './MetricsBlock.tsx'
 
 /** A sample older than this many ms is rendered dimmed (stale). */
 const STALE_MS = 3000
-
-const STATE_COLOR: Record<EndpointState, string> = {
-  idle: '#22c55e',
-  unreachable: '#ef4444',
-  unknown: '#8b93a7',
-}
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
@@ -70,17 +66,8 @@ function originLabel(origin: string): string {
   }
 }
 
-/** Colored state chip (dot + label). */
-function StateChip({ state }: { state: EndpointState }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: STATE_COLOR[state] }}>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR[state] }} />
-      {state}
-    </span>
-  )
-}
-
-/** Thin inline meter bar for a 0..1 ratio. */
+/**
+ * Thin inline meter bar for a 0..1 ratio. */
 function Meter({ ratio, color = '#60a5fa' }: { ratio: number | null; color?: string }) {
   if (ratio === null) return null
   const pct = Math.max(0, Math.min(1, ratio)) * 100
@@ -204,10 +191,18 @@ export function SlotBody() {
     )
   }
 
+  const chip = deriveChip({ snapshot, error, lastAttempt }, now)
+
   return (
     <div style={{ ...container, opacity: stale ? 0.55 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <StateChip state={snapshot.state} />
+        <span
+          title={chip.title}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: chip.dot }}
+        >
+          <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: chip.dot, flexShrink: 0 }} />
+          {chip.label}
+        </span>
         <span style={{ fontFamily: MONO, fontSize: 12, color: '#c3c9d6' }}>
           {originLabel(snapshot.origin)}
         </span>
@@ -233,6 +228,8 @@ export function SlotBody() {
             <p style={{ ...muted, overflowWrap: 'anywhere' }}>slots: {snapshot.slotsError}</p>
           )
         : snapshot.slots.map((slot) => <SlotBlock key={slot.id} slot={slot} />)}
+      {/* P7: server-wide /metrics rows (null ⇒ section hidden, no hole). */}
+      {snapshot.metrics !== null && <MetricsBlock metrics={snapshot.metrics} />}
     </div>
   )
 }
