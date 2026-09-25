@@ -89,6 +89,67 @@ export interface HealthSnapshot {
   slots: SlotSample[] | null
   /** Non-sensitive reason when `slots` is null; never contains key material. */
   slotsError: string | null
+  /**
+   * P7 server-wide metrics. `null` (not an empty object) whenever there is
+   * nothing to show: endpoint unreachable, `/metrics` capability not detected
+   * (501/404/401 → rows hide permanently until a restart is detected), or the
+   * first fetch has not succeeded yet. A transient fetch failure while the
+   * capability is known-`yes` keeps the last good values with `fresh: false`.
+   */
+  metrics: MetricsSection | null
+}
+
+/**
+ * P7: server-wide figures from `{origin}/metrics` (llama-server's Prometheus
+ * endpoint, `llamacpp:*` series). Pure enrichment — `/slots` stays
+ * authoritative for slot state, and every value here is `null`-able: the
+ * client renders a row only for a non-null value, so the whole section can
+ * vanish without leaving a layout hole.
+ *
+ * Rates are **derived from `_total` counter deltas** over the sample window,
+ * not from the `*_tokens_seconds` gauges (which read `0` while idle — a `0`
+ * is ambiguous between "idle" and "stuck"). `null` means "no meaningful
+ * value right now", never zero.
+ */
+export interface MetricsSection {
+  /** True when this section reflects a `/metrics` fetch made on the current tick. */
+  fresh: boolean
+  /** Short non-sensitive reason when not fresh (transient fetch failure); null when fresh. */
+  error: string | null
+  /**
+   * Derived prompt-encoding rate (tokens/s) over `rateWindowMs`. `null` when
+   * nothing moved in the window or the window is too small to be meaningful.
+   */
+  promptTokensPerSec: number | null
+  /** Derived decode rate (tokens/s) over `rateWindowMs`; same rules as `promptTokensPerSec`. */
+  tokensPerSec: number | null
+  /** Window the rates were derived over, in ms (0 until the first baseline). */
+  rateWindowMs: number
+  /** Queue depth: `requests_deferred` (requests waiting behind an active one). */
+  requestsDeferred: number | null
+  /** In-flight requests: `requests_processing`. */
+  requestsProcessing: number | null
+  /** Context high-water since server start: `n_tokens_max`. */
+  contextHighWater: number | null
+  /**
+   * Speculative-decode draft acceptance (accepted tokens / generated draft
+   * tokens). `lifetime` is cumulative since server start; `lastRequest` is the
+   * delta across the most recent completed request's `id_task` boundary (P2
+   * latch). Both `null` when no draft tokens were generated (spec off, or no
+   * completed request yet).
+   */
+  draftAcceptance: { lifetime: number | null; lastRequest: number | null }
+  /**
+   * Mean accepted draft length (accepted tokens per draft attempt), same two
+   * scopes as `draftAcceptance`.
+   */
+  draftMeanLen: { lifetime: number | null; lastRequest: number | null }
+  /**
+   * Per-position acceptance of the last completed request
+   * (position → accepted/generated), `null` when there was no completed
+   * request with draft activity. MTP diagnostic; optional to render.
+   */
+  perPosLastRequest: { position: number; acceptance: number | null }[] | null
 }
 
 /**

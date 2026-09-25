@@ -208,6 +208,7 @@ export async function collectHealth(origin: string, opts: CollectOptions = {}): 
       sampledAt: Date.now(),
       slots: null,
       slotsError: null,
+      metrics: null,
     }
   }
 
@@ -221,6 +222,7 @@ export async function collectHealth(origin: string, opts: CollectOptions = {}): 
       sampledAt: Date.now(),
       slots: null,
       slotsError: null,
+      metrics: null,
     }
   }
 
@@ -253,6 +255,7 @@ export async function collectHealth(origin: string, opts: CollectOptions = {}): 
     sampledAt: Date.now(),
     slots: null,
     slotsError: null,
+    metrics: null,
   }
 
   // --- /slots (privileged; probed only when /health answered 2xx/3xx) ---

@@ -66,6 +66,20 @@ await build({
   logLevel: 'warning',
 })
 
+// ---- metrics (testable pure module) ----------------------------------------
+// Rebuilt as a standalone entry so unit tests can drive the /metrics engine
+// with fixture probes without pulling in the host bundle's cordis externals.
+await build({
+  entryPoints: [join(root, 'src/host/metrics.ts')],
+  outfile: join(root, 'lib/metrics.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2024',
+  sourcemap: true,
+  logLevel: 'warning',
+})
+
 // ---- slotState (testable pure module) --------------------------------------
 // Rebuilt as a standalone entry so unit tests can import the chip state
 // derivation without pulling in the client bundle's browser externals.

@@ -18,11 +18,18 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only import: activates the `Context.webServer` declaration merge from
 // the webserver host package (erased at build time).
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { collectHealth } from './collect.ts'
+import { collectHealth, normalizeOrigin } from './collect.ts'
 import { Config } from './config.ts'
 import type { ResolvedConfig } from './config.ts'
 import { stampSlotLatches } from './latch.ts'
 import type { SlotLatch } from './latch.ts'
+import {
+  advanceMetrics,
+  createMetricsState,
+  shouldFetchMetrics,
+  type MetricsEngineState,
+  type MetricsProbe,
+} from './metrics.ts'
 import { ROUTE } from './route.ts'
 import type { HealthSnapshot } from '../shared/types.ts'
 
@@ -35,6 +42,9 @@ export type { HealthSnapshot } from '../shared/types.ts'
 /** Milliseconds between samples. The client pane polls at ~1 Hz. */
 export const SAMPLE_INTERVAL_MS = 1000
 
+/** Per-probe timeout for the `/metrics` fetch (same budget as /health + /slots). */
+const METRICS_TIMEOUT_MS = 2000
+
 /** Latest sampled state; a placeholder until the first tick completes. */
 let latest: HealthSnapshot = {
   ok: false,
@@ -44,7 +54,11 @@ let latest: HealthSnapshot = {
   sampledAt: Date.now(),
   slots: null,
   slotsError: null,
+  metrics: null,
 }
+
+/** P7 metrics engine state (capability + baselines); owned by the sampler. */
+let metricsState: MetricsEngineState = createMetricsState()
 
 /**
  * Per-slot busy-age / TTFT latches (P2). Host memory only: they survive
@@ -59,7 +73,45 @@ let apiKey: string | undefined = undefined
 /** True while a sample is in flight, so overlapping ticks are skipped. */
 let sampling = false
 
-/** One sampling pass: probe, stamp latches, store. Never throws. */
+/**
+ * GET `{base}/metrics` with the per-probe timeout. Never throws — every
+ * failure mode becomes a `MetricsProbe` (`status: null` on network failure)
+ * so a metrics outage can never poison the health snapshot (phase P7 trap:
+ * independent try/catch, like gpu-monitor's per-field isolation).
+ *
+ * The Bearer key goes in when one is configured: the verified endpoint
+ * answers 401 without a key and 200 with one. The key is a request header
+ * only — never logged, never stored in any probe or snapshot field.
+ */
+async function fetchMetrics(base: string): Promise<MetricsProbe> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), METRICS_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${base}/metrics`, {
+      signal: controller.signal,
+      headers: apiKey !== undefined ? { authorization: `Bearer ${apiKey}` } : undefined,
+    })
+    if (res.status >= 200 && res.status < 300) {
+      const text = await res.text()
+      return { status: res.status, text, error: null }
+    }
+    return { status: res.status, text: null, error: null }
+  } catch (err) {
+    const name = (err as { name?: unknown } | null)?.name
+    const cause = (err as { cause?: { code?: string } } | null)?.cause
+    const reason =
+      name === 'TimeoutError' || name === 'AbortError' || cause?.code === 'ETIMEDOUT'
+        ? `timed out after ${METRICS_TIMEOUT_MS} ms`
+        : cause?.code === 'ECONNREFUSED'
+          ? 'connection refused'
+          : String(err)
+    return { status: null, text: null, error: reason.length > 120 ? `${reason.slice(0, 120)}…` : reason }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** One sampling pass: probe, stamp latches, advance metrics, store. Never throws. */
 async function tick(origin: string): Promise<void> {
   if (sampling) return
   sampling = true
@@ -71,6 +123,15 @@ async function tick(origin: string): Promise<void> {
       latches.clear()
       for (const [id, latch] of stamped.latches) latches.set(id, latch)
     }
+    // P7: enrich with /metrics when the capability state machine says to.
+    // Skipped probes pass `null` (e.g. capability already `no`, or the
+    // endpoint went unreachable) — the engine then keeps/stales the last
+    // section according to its rules.
+    const probe =
+      snap.ok && shouldFetchMetrics(metricsState)
+        ? await fetchMetrics(normalizeOrigin(origin))
+        : null
+    snap.metrics = advanceMetrics(metricsState, probe, snap, Date.now())
     latest = snap
   } catch (err) {
     // collectHealth is catch-all; this guards the sampler loop itself.
@@ -82,6 +143,7 @@ async function tick(origin: string): Promise<void> {
       sampledAt: Date.now(),
       slots: null,
       slotsError: null,
+      metrics: null,
     }
   } finally {
     sampling = false

@@ -52,8 +52,9 @@ function parseSampleLine(line: string): PromSample | null {
     const close = findClosingBrace(line, brace)
     if (close === -1) return null
     name = line.slice(0, brace).trim()
-    labels = parseLabelBlock(line.slice(brace + 1, close))
-    if (labels === null) return null
+    const parsedLabels = parseLabelBlock(line.slice(brace + 1, close))
+    if (parsedLabels === null) return null
+    labels = parsedLabels
     restStart = close + 1
   } else {
     const sp = line.indexOf(' ')
