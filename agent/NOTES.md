@@ -167,6 +167,29 @@ Consequences to re-probe once the server is back up:
   cause A's whole `{value, sample}` question moot for live data (still worth fixing for other servers).
 - ENV.md's `--reasoning off --reasoning-budget 0` is also stale: the human has been running
   `--reasoning on --reasoning-budget 2048`. Re-read argv from `/proc/<pid>/cmdline` rather than ENV.md.
+
+## Cause A FROZEN + new-model probe (2026-09-25 09:40)
+
+**Decision (mine, reversible, logged so the overnight run cannot loop on it): ADOPT `{value, sample}`.**
+`draftAcceptance` / `draftMeanLen` become `{ lifetime: {value,sample} | null, lastRequest: {value,sample} | null }`;
+`sample` = the denominator (draft tokens for acceptance, draft attempts for mean-len). Rationale: AC12
+already demands the figure be labeled lifetime-vs-delta; a bare `0.87` is untrustworthy without n.
+`perPosLastRequest`: `[]` when a request completed with no per-position movement, `null` when no
+completed request. Touches `types.ts`, `metrics.ts`, the tests, and (later) client rows.
+Causes B/C/D stay **test-side** per the table above. If a future human vetoes A, it is one type change.
+
+Probed live at 09:33 on the restarted server (human restarted 09:32):
+- `/slots` → `n_ctx: 128000` (**128k, not the ~65k the human estimated**), `speculative: true`.
+- `/metrics` → `spec_decode_*` **live**, incl. `per_pos` positions 0,1,2 (consistent with `--spec-draft-n-max 3`);
+  `n_tokens_max 20003`; `requests_processing 1` at probe time (server was mid-request).
+- Ports: `:8080` + `:3080` up; **`:3090` acceptance server DOWN** — next run must boot it (SKILL §Acceptance:
+  check first, clean env, no `--profile web`).
+- Client pane has **no metrics render code yet** (`src/client` never references the section) — P7 client half TODO.
+- Verified-in-code visual defect (not screenshot-guessing): `SlotBody.tsx` header renders the raw
+  endpoint-level `snapshot.state` via `StateChip`, so it shows green "idle" while a slot is busy. The
+  dock chip uses `deriveChip` (slotState.ts) and would say busy. Fix: pane header consumes the same
+  derived state — that is the module's stated promise ("cannot disagree"). `latency 0 ms` on localhost
+  is honest but reads oddly; consider "<1 ms". Everything else visual = pending-human.
 - Lower quant + bigger ctx ⇒ faster decode, slower/again-faster prefill; any hardcoded threshold
   from P3 (`wedged`) was tuned on the old model. Re-derive, don't inherit.
 - Server was **down** at review time (no `llama-server` pid, `:8080` dead, `:3080`/`:3090` gone;

@@ -17,39 +17,40 @@ The last run **looped** here. Root cause is a **contract split, not a code bug**
 
 Four independent causes — full table + evidence in **NOTES.md §"P7 BLOCKER"**:
 
-- **A (the blocker, 6 tests) — `{value, sample}` vs `number | null`. Needs a human decision.** Tests want a
-  denominator (`draftAcceptance.lifetime.sample === 10`); `types.ts:141` has no `sample`, and that word
-  appears nowhere in `src/`. Recommended = adopt `{value, sample}` (AC12 already requires labeling
-  lifetime-vs-delta; a bare `0.87` is untrustworthy). **Don't guess.** Only cause touching `src/`.
+- **A (6 tests) — `{value, sample}` vs `number | null`. DECIDED 09:40: adopt `{value, sample}`** (frozen in
+  NOTES §"Cause A FROZEN"; reversible, one type change if vetoed). `sample` = denominator (draft tokens /
+  draft attempts). `perPosLastRequest`: `[]` after a completed request with no movement, `null` if none.
+  Only cause touching `src/` (types.ts + metrics.ts + tests + later client rows).
 - **B/C/D (6 tests) — test-side only.** B: fixture's `snap('down')` isn't a canonical `EndpointState`
-  (use `'unreachable'`); note test 12 passes for the *wrong* reason. C: capability rules contradict the
-  frozen note. D: empty body ⇒ `null`, test derefs it ⇒ TypeError.
+  (use `'unreachable'`); test 12 passes for the *wrong* reason. C: capability rules contradict the frozen
+  note. D: empty body ⇒ `null`, test derefs it ⇒ TypeError.
 
-## Environment DOWN + model changed — re-verify everything
+## Environment — re-probed 09:33 after human's model swap
 
-- At 09:00: **no `llama-server`**, `:8080` dead, `:3080`/`:3090` gone; only ollama `:11434`. Resolve pids
-  live (`pgrep -x llama-server`) — **never trust a pid in a doc.**
-- Model swapped for ctx headroom: `Qwen3.8-27B-…-IQ4_XS` **MTP** GGUF (was Q6_*), **KV q8**, **~65k ctx**.
-  Every earlier number is stale (incl. "`contextUsed` ~22k"). P3 `wedged` thresholds were tuned on the old
-  quant — re-derive, don't inherit.
-- Spec-decode MTP was **already** active on the old server (ENV.md:78) — `spec_decode_*` is not new, don't
-  "discover" it. But the new GGUF has MTP baked in, so check whether `--spec-draft-model` is still passed;
-  if not, those series may **disappear** and cause A becomes moot for live data. **Probe before trusting fixtures.**
-- ENV.md's argv block is stale (`-c 32768`, `--reasoning off`). Re-read `/proc/<pid>/cmdline`, not ENV.md.
+- Server **UP** (new pid — resolve live, never trust a doc): `:8080` + `:3080` listening; **`:3090` acceptance
+  server DOWN** → boot it per SKILL §"Acceptance port" (check first, clean env, no `--profile web`).
+- New model live: `Qwen3.8-27B-…-IQ4_XS` MTP GGUF, KV q8. `/slots` says **`n_ctx: 128000`** (the "~65k"
+  estimate was wrong), `speculative: true`. `/metrics` has `spec_decode_*` incl. per-pos 0–2; `n_tokens_max`
+  ~20k. All earlier sizing numbers stale; P3 `wedged` thresholds were tuned on the old quant — re-derive.
+- ENV.md argv block carries a STALE banner; read `/proc/<pid>/cmdline` for truth.
+- Client pane has **no metrics render code yet** — P7 client half is TODO after the engine goes green.
+- One verified-in-code visual defect (not screenshot-guessing): `SlotBody.tsx` header renders the raw
+  endpoint-level `snapshot.state`, so it can show green "idle" while a slot is busy; the dock chip uses
+  `deriveChip` and would say busy. Fix = pane header consumes the same derived state (slotState.ts's
+  stated promise). Rest of visual polish = pending-human.
 
 ## Committed so far
 
-- `ddb4ca6` P7 promParse + 5 tests — **HEAD** · `e93a772` P6 chip · `9b0f9ac` P2–P5 · `2069b8a` P1 · `090a524` P0
-- **Uncommitted P7:** new `src/host/metrics.ts`, `test/metrics.test.mjs`, `lib/metrics.mjs`; modified
-  `types.ts`, `collect.ts`, `host/index.ts`, `promParse.ts`, `build.mjs`, `NOTES.md`
+- `875d13c` P7 engine WIP/BLOCKED + 27 tests · `12c4d16` this diagnosis · `ddb4ca6` promParse ·
+  `e93a772` P6 chip · `9b0f9ac` P2–P5 · `2069b8a` P1 · `090a524` P0
 - `:3090` bundle served via the `??` combo URL only (5 MB; `/tmp/combo-url.txt`) — single-file
   `client.js?rev=` 404s **by design**. CLI `0.1.6-alpha.2`: `--profile`/`--dump-config` are global.
 
 ## Next 3
 
-1. [ ] **Get the cause-A decision** (`{value,sample}` vs `number|null`); freeze it in NOTES.
-2. [ ] Fix B/C/D **test-side** expectations (`'down'`→`'unreachable'`; capability rules per NOTES; D expects `null`).
-3. [ ] Implement A → `npm test` green → **commit P7**. Then AC6/AC12 + pending-human below.
+1. [ ] Boot `:3090` (check first), then fix B/C/D **test-side** (`'down'`→`'unreachable'`; capability per NOTES; D expects `null`).
+2. [ ] Implement cause A (`{value, sample}`) in types.ts + metrics.ts + tests → `npm test` green → **commit P7 engine**.
+3. [ ] Client metrics rows (AC6/AC12) + pane-header derived-state fix; visual polish = pending-human.
 
 ## pending-human
 
