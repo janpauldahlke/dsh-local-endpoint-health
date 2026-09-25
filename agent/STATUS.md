@@ -48,7 +48,8 @@ Chasing red breaks typecheck or contradicts NOTES. **Decide first, edit second.*
 
 ## pending-human
 
-- P0/P1: tab renders; idle + "updated N s ago" ticks.
+- ~~P0/P1/P2 pane~~ **HUMAN-CONFIRMED 09:32** (screenshot: tab renders, slot rows live with
+  prompt/decoded/busy/ttft/context + meters). Remaining visual work is polish, not activation proof.
 - P6 AC9: chip alone distinguishes busy / idle / error·auth / unreachable / stale; no jitter while typing;
   light+dark readable; no gpu-monitor collision. Steps in `agent/ACCEPTANCE.md`.
 - P7 AC6 (not a tok/s clone) + AC12 (acceptance labeled lifetime vs delta'd) — server is up now.
