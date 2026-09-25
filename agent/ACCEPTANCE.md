@@ -86,3 +86,31 @@ Machine-verified:
   4. Light + dark themes: slot rows, meters, and the metrics section stay readable (all ink is currentColor-mix;
      no hard grey); stale sample still dims the whole body.
   5. Tooltips: every row explains the metric and its source (`/slots` vs `/metrics`, counter-delta window).
+
+## REVIEW2 — card chrome + collapsible sections (agent-verified 2026-09-25, `4812a74`)
+
+Machine-verified:
+- 83/83 tests (7 new `slotTone` cases incl. the P3 guard: healthy long prefill at 400 s stays `na`,
+  prompt-done + zero-decoded at 400 s → `crit`, decoding at 400 s stays `na`; `WEDGED_AFTER_MS` = 300 000).
+- Served `:3090` combo re-fetched (38,038 B, HTTP 200, fresh rev) and grepped: `CollapsibleCard`,
+  all three localStorage keys (`dsh.slotHealth.card.slot.${id}` / `.metrics` / `.slots`), chevron
+  (served `\u25B8`-escaped), `aria-expanded`, hover wash `currentColor 6%`, card border 18%,
+  crit border `#f87171 60%`, `SLOT `/`SERVER` chips, `slotTone`, meter `{ratio, tooltip}` objects,
+  caption, plus all REVIEW §2 markers still present (ECG icon, stable `label: "busy"`).
+- Live `:3090` route healthy after the pass: slot 0 live-busy (agent's own request — card expands
+  per policy), metrics fresh, `acc · lifetime {value 0.649, sample 106072}`.
+
+- ⏳ pending-human (token URL, `/tmp/dsh-3090.log` line 1; same on `:3080`):
+  1. Pane is now **cards**: flat header (state + origin + latency/updated), then a `SLOT 0` card and a
+     `SERVER` card — radius-8 shells, hairline borders (theme-ink, no grey), hover wash on the header
+     row, chevron ▸ rotates when opened.
+  2. **Collapsed previews** (right-aligned, tabular): slot card idle → `ctx N% · dec 0 · busy —`;
+     while a request runs → `busy 22s · dec 892 · prompt 5%` (each fragment has its own tooltip).
+     SERVER card → `P/D tok/s · acc N%` + window label; collapsed by default.
+  3. **Expand policy**: slot card opens while busy/wedged and closes when idle (until you toggle it);
+     an explicit toggle **persists** across reloads (localStorage).
+  4. **Keyboard**: header is focusable; Enter/Space toggles; `aria-expanded` flips.
+  5. Light + dark themes: card borders/chevron/chips stay readable (all color-mix); stale sample or
+     not-fresh metrics dims the card, not the theme.
+  6. No regression: dock chip unchanged (stable word, hides while pane open); ECG guide icon unchanged;
+     row tooltips still present inside the cards.
