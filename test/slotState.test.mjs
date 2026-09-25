@@ -9,7 +9,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { deriveChip, ageLabel, STALE_MS, slotTone, WEDGED_AFTER_MS, backendLabel } from '../lib/slotState.mjs'
+import { deriveChip, ageLabel, STALE_MS, slotTone, WEDGED_AFTER_MS, backendLabel, bareStateWord } from '../lib/slotState.mjs'
 
 // Fixed clock so staleness arithmetic is exact.
 const NOW = 1_700_000_000_000
@@ -353,4 +353,27 @@ test('P8 backendLabel: product names, ollama version appended when known', () =>
   assert.equal(backendLabel({ backend: 'vllm' }), 'vllm')
   assert.equal(backendLabel({ backend: 'unknown' }), null)
   assert.equal(backendLabel(null), null)
+})
+
+// P8 follow-up: pane header puts the engine tag LEFT and the bare state word
+// RIGHT (bareStateWord strips the engine prefix so it never repeats).
+test('P8 bareStateWord: strips the engine prefix when the engine is known', () => {
+  assert.equal(bareStateWord({ label: 'llama · idle' }, { backend: 'llama-cpp' }), 'idle')
+  assert.equal(bareStateWord({ label: 'ollama · no model' }, { backend: 'ollama' }), 'no model')
+  assert.equal(bareStateWord({ label: 'ollama · loaded' }, { backend: 'ollama' }), 'loaded')
+  assert.equal(bareStateWord({ label: 'vllm · busy' }, { backend: 'vllm' }), 'busy')
+})
+
+test('P8 bareStateWord: no prefix to strip when the engine is unknown', () => {
+  // unreachable/unknown → backend 'unknown' → label carries no engine prefix.
+  assert.equal(bareStateWord({ label: 'down' }, { backend: 'unknown' }), 'down')
+  assert.equal(bareStateWord({ label: 'unknown' }, { backend: 'unknown' }), 'unknown')
+  // Transport error / waiting: snapshot may be null or stale; never fabricate.
+  assert.equal(bareStateWord({ label: 'error' }, null), 'error')
+  assert.equal(bareStateWord({ label: 'waiting' }, null), 'waiting')
+})
+
+test('P8 bareStateWord: never touches a label that does not carry the prefix', () => {
+  // Defensive: even with a known engine, an unprefixed label passes through.
+  assert.equal(bareStateWord({ label: 'busy' }, { backend: 'llama-cpp' }), 'busy')
 })

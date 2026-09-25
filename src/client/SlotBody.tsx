@@ -6,10 +6,13 @@
  * advances even while the endpoint is stable. Self-contained (no props):
  * the slot registry mounts it bare.
  *
- * Pane skeleton (REVIEW2 §2a): a flat header (state dot + rich chip detail +
- * origin, latency/updated band) and a stack of **cards** — one per slot,
+ * Pane skeleton (REVIEW2 §2a): a flat header — stable context first
+ * (engine tag + origin), volatile state last (state dot + rich chip detail),
+ * then the latency/updated band — and a stack of **cards**, one per slot,
  * plus the server-metrics card. Card chrome, collapse, and the collapsed
  * preview are the shared `CollapsibleCard` (GpuCard constants, REVIEW2 §2c).
+ * The stable-first order keeps the per-second age/dec ticks from shifting
+ * the fixed parts of the line (P8 follow-up).
  *
  * Header state → color/label comes from `slotState.deriveChip()` — the same
  * pure derivation the dock chip uses, so the two surfaces cannot disagree.
@@ -35,7 +38,7 @@ import type { CSSProperties } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
 import type { OllamaSection, SlotSample } from '../shared/types.ts'
 import { setPaneOpen } from './paneState.ts'
-import { ageLabel, backendLabel, deriveChip, STATE_DOT, slotTone } from './slotState.ts'
+import { ageLabel, backendLabel, bareStateWord, deriveChip, STATE_DOT, slotTone } from './slotState.ts'
 import { CollapsibleCard } from './card.tsx'
 import type { CardPreviewStat } from './card.tsx'
 import { MONO, Row, muted } from './row.tsx'
@@ -357,19 +360,15 @@ export function SlotBody() {
 
   return (
     <div style={{ ...container, opacity: stale ? 0.55 : 1 }}>
-      {/* Pane header (not a card) */}
+      {/* Pane header (not a card): stable context FIRST (engine + origin),
+          volatile state LAST — the age/dec ticks only extend the line's right
+          edge and never shift the fixed parts (P8 follow-up: reorder to kill
+          the per-second layout jump). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span
-          title={chip.title}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: chip.dot }}
-        >
-          <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: chip.dot, flexShrink: 0 }} />
-          {chip.detail ?? chip.label}
-        </span>
-        {/* P8: engine tag next to the rich state detail (spec §4.1). Shown
-            only when the detail (not the engine-prefixed label) is what's on
-            screen, so the engine never appears twice in the same row. */}
-        {chip.detail !== null && backendLabel(snapshot) !== null && (
+        {/* P8: engine tag (spec §4.1). Always shown when the engine is known —
+            `bareStateWord` strips the engine prefix from the state text below,
+            so the engine never appears twice in the same row. */}
+        {backendLabel(snapshot) !== null && (
           <span
             title={`engine: ${backendLabel(snapshot)}`}
             style={{ fontSize: 12, color: 'color-mix(in srgb, currentColor 55%, transparent)' }}
@@ -379,6 +378,13 @@ export function SlotBody() {
         )}
         <span style={{ fontFamily: MONO, fontSize: 12, color: 'color-mix(in srgb, currentColor 70%, transparent)' }}>
           {originLabel(snapshot.origin)}
+        </span>
+        <span
+          title={chip.title}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: chip.dot }}
+        >
+          <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: chip.dot, flexShrink: 0 }} />
+          {chip.detail !== null ? chip.detail : bareStateWord(chip, snapshot)}
         </span>
       </div>
       <div style={{ display: 'flex', gap: 16, fontVariantNumeric: 'tabular-nums' }}>

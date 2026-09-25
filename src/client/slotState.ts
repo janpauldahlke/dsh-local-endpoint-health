@@ -122,6 +122,27 @@ export function backendLabel(
 }
 
 /**
+ * P8 follow-up: the bare state word for a surface that shows the engine
+ * separately — the pane header now puts the engine tag on the LEFT and the
+ * volatile state on the right, so the engine word must not repeat inside the
+ * state text. Strips the `engine · ` prefix from `chip.label` when present;
+ * returns the label unchanged when it carries no engine (transport `error`/
+ * `waiting`, `unreachable`, `unknown` — `backend` is 'unknown' there and the
+ * header shows no engine tag either, so nothing is lost).
+ */
+export function bareStateWord(
+  chip: Pick<ChipDisplay, 'label'>,
+  snapshot: { backend: Backend } | null,
+): string {
+  const engine = snapshot !== null ? backendWord(snapshot.backend) : null
+  if (engine !== null) {
+    const prefix = `${engine} · `
+    if (chip.label.startsWith(prefix)) return chip.label.slice(prefix.length)
+  }
+  return chip.label
+}
+
+/**
  * Format a duration in ms as a short human-readable label.
  * Exported so the pane and chip share one formatter.
  */

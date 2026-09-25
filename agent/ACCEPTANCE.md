@@ -132,9 +132,16 @@ Machine-verified (hard rule honored: **no model start/load/pull on `:11434`** �
   server pid **528259**, real `LLAMA_API_KEY` re-injected from llama-server environ, never printed):
   route → `state:"idle"`, `backend:"llama-cpp"`, real slots, `slotsError:null`.
 
+- **Header reorder (P8 follow-up)**: the pane header is now stable-first —
+  `· llama.cpp  127.0.0.1:8080  ● busy 15s · dec 1` — so the per-second
+  age/dec ticks only extend the line's right edge and never shift the fixed
+  engine/origin parts. `bareStateWord` strips the engine prefix from the state
+  text (3 new unit tests, 118/118). Served bundle re-verified (rev changed).
+
 - ⏳ pending-human (token URL, `/tmp/dsh-3090.log` line 1):
   1. **Ollama pane**: set origin in `~/.dsh/profiles/web/cordis.patch.yml` to `http://127.0.0.1:11434` and
-     restart `:3090` → dock chip `ollama · no model` (green), pane header engine tag `· ollama 0.22.1`,
+     restart `:3090` → dock chip `ollama · no model` (green), pane header
+     `· ollama 0.22.1  127.0.0.1:11434  ● no model` (stable parts on the left),
      MODELS card accent `no model` + meta `12 in library` + "Nothing loaded" hint. Never an error state.
   2. **Loaded model** (human loads on `:11434` — OOM hard rule): chip `ollama · loaded`, detail
      `loaded · <name>`, MODELS card rows (name · family/size/quant + size / vram / keeps N m).

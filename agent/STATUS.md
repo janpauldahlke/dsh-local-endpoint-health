@@ -25,9 +25,13 @@ gotchas in SKILL "Corrections learned the hard way."
 
 - `0b5fb60` P8 slices 1–5: 115/115 tests, tsc clean. Live read-only smoke: `:11434` →
   `up-no-model`/ollama 0.22.1/lib 12, chip `ollama · no model`; `:8080` → idle/llama-cpp.
-- This commit: slice 6 (README + ACCEPTANCE) + `:3090` reconnected: server pid **528259**,
-  real `LLAMA_API_KEY` re-injected (never printed); served bundle (44,597 B) has all P8
+- Slice 6: README + ACCEPTANCE. `:3090` reconnected: server pid **528259**,
+  real `LLAMA_API_KEY` re-injected (never printed); served bundle has all P8
   markers; route → idle + real slots. Token: `/tmp/dsh-3090.log` line 1.
+- P8 follow-up (header reorder, human request): pane header now stable-first
+  `· llama.cpp  127.0.0.1:8080  ● busy 15s · dec 1` — engine+origin left,
+  volatile state right. `bareStateWord()` strips the engine prefix so it never
+  repeats. 118/118, tsc clean; served bundle re-verified (engine→origin→dot).
 
 ## Environment (re-probed now — old pids are DEAD)
 
