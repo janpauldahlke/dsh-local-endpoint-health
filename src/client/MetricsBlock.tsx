@@ -29,16 +29,23 @@ import { Row, muted } from './row.tsx'
 import { fmtFigure, fmtPerPos, metricsHasRows, toFigure, toPerPos } from './metricsFmt.ts'
 
 export function MetricsCard({ metrics }: { metrics: MetricsSection }) {
-  // Coerce before rendering — see the module doc (REVIEW §1).
-  const accLife = fmtFigure(toFigure(metrics.draftAcceptance.lifetime))
-  const accLast = fmtFigure(toFigure(metrics.draftAcceptance.lastRequest))
-  const lenLife = fmtFigure(toFigure(metrics.draftMeanLen.lifetime))
-  const lenLast = fmtFigure(toFigure(metrics.draftMeanLen.lastRequest))
+  // Skip empty sections before touching nested fields (a partial/stale payload
+  // must never throw on the way to "no rows").
+  if (!metricsHasRows(metrics)) return null
+
+  // Coerce before rendering — see the module doc (REVIEW §1). Optional
+  // chaining: a stale host may omit draftAcceptance/draftMeanLen entirely.
+  const accLifeFig = toFigure(metrics.draftAcceptance?.lifetime)
+  const accLastFig = toFigure(metrics.draftAcceptance?.lastRequest)
+  const lenLifeFig = toFigure(metrics.draftMeanLen?.lifetime)
+  const lenLastFig = toFigure(metrics.draftMeanLen?.lastRequest)
+  const accLife = fmtFigure(accLifeFig)
+  const accLast = fmtFigure(accLastFig)
+  const lenLife = fmtFigure(lenLifeFig)
+  const lenLast = fmtFigure(lenLastFig)
   const perPos = toPerPos(metrics.perPosLastRequest)
   const specRows =
     accLife !== null || accLast !== null || lenLife !== null || lenLast !== null || perPos.length > 0
-
-  if (!metricsHasRows(metrics)) return null
 
   // --- Collapsed preview (REVIEW2 §2b) ---
   const preview: CardPreviewStat[] = []
@@ -51,8 +58,9 @@ export function MetricsCard({ metrics }: { metrics: MetricsSection }) {
         : '—',
     title: `Prompt / decode tokens per second — counter delta over the sample window, from the server's own /metrics`,
   })
-  const accLifeFig = metrics.draftAcceptance.lifetime
-  if (accLifeFig !== null && accLife !== null) {
+  // Use the coerced figure — raw `.lifetime` may be a bare number on a stale
+  // host, and `bare.value` is undefined → "acc NaN%" in the preview.
+  if (accLifeFig !== null) {
     preview.push({
       text: `acc ${Math.round(accLifeFig.value * 100)}%`,
       title: `Draft acceptance, lifetime (n=${accLifeFig.sample}) — accepted / draft tokens since server start`,
