@@ -1,7 +1,7 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 10:15 — **P0–P7 all committed.** P7 engine `8216613` (68/68 green),
-P7 client `749714d`. `:3090` UP with new engine + client bundle, verified live.
+**Updated:** 2026-09-25 10:30 — **P0–P7 committed.** `:3090` OK; `:3080` empty pane = stale host +
+client null crash — full write-up in **`agent/REVIEW.md`** (also UI polish brief).
 
 Laws in **`AGENTS.md`** (auto-loaded); facts in **`ENV.md`**; style in `STYLE.md`; packaging gotchas in
 SKILL "Corrections learned the hard way."
@@ -37,11 +37,11 @@ SKILL "Corrections learned the hard way."
 
 ## Next 3
 
-1. [ ] **Human:** run the `agent/ACCEPTANCE.md` P7 pending-human checks (1–5) + P6 AC9 on the
-   `:3090` token URL. No browser here — nothing visual is claimed.
-2. [ ] Re-derive P3 `wedged` thresholds for the new model (lower quant + 128k ctx — old
-   thresholds tuned on the old quant; do not inherit).
-3. [ ] Optional polish (pending-human only): `latency 0 ms` → "<1 ms" in the pane.
+1. [ ] **`:3080` empty pane** — see `agent/REVIEW.md` §1. Harden `MetricsBlock` (`perPos` null-guard +
+   legacy number figures); human may restart `:3080` for the new host — agent does not bounce it unless asked.
+2. [ ] **UI polish pass** — `agent/REVIEW.md` §2: GPU-style meter rows, dock-chip width/stable label,
+   heartbeat guide icon (not the default cube shared with GPU Monitor). Verify on `:3090`.
+3. [ ] Re-derive P3 `wedged` thresholds for IQ4_XS + 128k; optional `latency 0 ms` → `<1 ms`.
 
 ## pending-human
 
