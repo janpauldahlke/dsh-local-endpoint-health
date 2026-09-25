@@ -80,6 +80,33 @@ await build({
   logLevel: 'warning',
 })
 
+// ---- fingerprint (testable pure module, P8) --------------------------------
+// Rebuilt as a standalone entry so unit tests can drive the engine
+// fingerprinting without pulling in the host bundle's cordis externals.
+await build({
+  entryPoints: [join(root, 'src/host/fingerprint.ts')],
+  outfile: join(root, 'lib/fingerprint.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2024',
+  sourcemap: true,
+  logLevel: 'warning',
+})
+
+// ---- ollama (testable pure module, P8) -------------------------------------
+// Parsers for the Ollama reporting surface (/api/ps, /api/tags).
+await build({
+  entryPoints: [join(root, 'src/host/ollama.ts')],
+  outfile: join(root, 'lib/ollama.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2024',
+  sourcemap: true,
+  logLevel: 'warning',
+})
+
 // ---- slotState (testable pure module) --------------------------------------
 // Rebuilt as a standalone entry so unit tests can import the chip state
 // derivation without pulling in the client bundle's browser externals.

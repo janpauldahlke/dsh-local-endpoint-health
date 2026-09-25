@@ -21,6 +21,8 @@ and compaction returned an empty summary. **Zero bytes of P1 reached disk.**
 
 - Never `git push`. Never touch `origin`. Commit locally after each verified phase.
 - Never kill/restart `:3080` (dsh), `:8080` (llama-server), `:11434` (ollama). Acceptance port `:3090`.
+  **Never start/load/pull a model on `:11434` (ollama) — it OOMs the agent's own process.** Probe
+  ollama read-only (GET `/api/version`, `/api/ps`, `/api/tags`); the human does any model load.
 - Never `pkill dsh`/`pkill node` to free a port — that pattern matches the **sacred `:3080`** too
   (same cmdline shape, different pid). If `:3090` is already yours, **reuse it**; killing anything
   only by verified pid number. See SKILL.md "Acceptance port".

@@ -9,7 +9,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { deriveChip, ageLabel, STALE_MS, slotTone, WEDGED_AFTER_MS } from '../lib/slotState.mjs'
+import { deriveChip, ageLabel, STALE_MS, slotTone, WEDGED_AFTER_MS, backendLabel } from '../lib/slotState.mjs'
 
 // Fixed clock so staleness arithmetic is exact.
 const NOW = 1_700_000_000_000
@@ -261,4 +261,96 @@ test('slotTone: promptProgress null at 400 s + zero decoded → na (no evidence 
 
 test('WEDGED_AFTER_MS is 300_000 (DSH streamIdleTimeoutMs)', () => {
   assert.equal(WEDGED_AFTER_MS, 300_000)
+})
+
+// ---------------------------------------------------------------------------
+// P8: engine prefix + Ollama states (agent/specs/ollama-backend.md)
+// ---------------------------------------------------------------------------
+
+/** An Ollama snapshot: no slots, no /health, states come from /api/ps. */
+function ollamaSnapshot(state, overrides = {}) {
+  return {
+    state,
+    backend: 'ollama',
+    backendVersion: '0.22.1',
+    origin: 'http://127.0.0.1:11434',
+    latencyMs: 12,
+    sampledAt: FRESH,
+    lastError: null,
+    slots: null,
+    slotsError: null,
+    ollama: null,
+    ...overrides,
+  }
+}
+
+test('P8: up-no-model → state=no-model, label="ollama · no model", green dot', () => {
+  const d = deriveChip(live({ snapshot: ollamaSnapshot('up-no-model') }), NOW)
+  assert.equal(d.state, 'no-model')
+  assert.equal(d.label, 'ollama · no model')
+  assert.equal(d.dot, '#22c55e')
+  assert.match(d.title, /no model loaded/)
+})
+
+test('P8: up-loaded → state=loaded, label="ollama · loaded", detail names the model', () => {
+  const d = deriveChip(
+    live({
+      snapshot: ollamaSnapshot('up-loaded', {
+        ollama: { fresh: true, error: null, loaded: [{ name: 'mistral:latest' }], libraryCount: 12 },
+      }),
+    }),
+    NOW,
+  )
+  assert.equal(d.state, 'loaded')
+  assert.equal(d.label, 'ollama · loaded')
+  assert.equal(d.dot, '#22c55e')
+  assert.equal(d.detail, 'loaded · mistral:latest')
+  assert.match(d.title, /1 model resident \(mistral:latest\)/)
+})
+
+test('P8: multiple loaded models → title counts them, detail uses the first', () => {
+  const d = deriveChip(
+    live({
+      snapshot: ollamaSnapshot('up-loaded', {
+        ollama: {
+          fresh: true,
+          error: null,
+          loaded: [{ name: 'a:latest' }, { name: 'b:latest' }],
+          libraryCount: 12,
+        },
+      }),
+    }),
+    NOW,
+  )
+  assert.equal(d.label, 'ollama · loaded')
+  assert.equal(d.detail, 'loaded · a:latest')
+  assert.match(d.title, /2 models resident/)
+})
+
+test('P8: llama snapshot → engine prefix on the idle label', () => {
+  const d = deriveChip(live({ snapshot: idleSnapshot({ backend: 'llama-cpp' }) }), NOW)
+  assert.equal(d.state, 'idle')
+  assert.equal(d.label, 'llama · idle')
+})
+
+test('P8: unknown backend → no engine prefix (never fabricate an engine)', () => {
+  const d = deriveChip(live({ snapshot: idleSnapshot({ backend: 'unknown' }) }), NOW)
+  assert.equal(d.label, 'idle')
+})
+
+test('P8: busy with an identified backend → "llama · busy", detail unchanged', () => {
+  const busy = slot({ state: 'busy', busyAgeMs: 22_000, decoded: 892 })
+  const d = deriveChip(live({ snapshot: idleSnapshot({ backend: 'llama-cpp', slots: [busy] }) }), NOW)
+  assert.equal(d.state, 'busy')
+  assert.equal(d.label, 'llama · busy')
+  assert.equal(d.detail, 'busy 22s · dec 892')
+})
+
+test('P8 backendLabel: product names, ollama version appended when known', () => {
+  assert.equal(backendLabel({ backend: 'llama-cpp' }), 'llama.cpp')
+  assert.equal(backendLabel({ backend: 'ollama', backendVersion: '0.22.1' }), 'ollama 0.22.1')
+  assert.equal(backendLabel({ backend: 'ollama', backendVersion: null }), 'ollama')
+  assert.equal(backendLabel({ backend: 'vllm' }), 'vllm')
+  assert.equal(backendLabel({ backend: 'unknown' }), null)
+  assert.equal(backendLabel(null), null)
 })

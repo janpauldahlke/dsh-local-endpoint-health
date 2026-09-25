@@ -33,9 +33,9 @@
 import { useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
-import type { SlotSample } from '../shared/types.ts'
+import type { OllamaSection, SlotSample } from '../shared/types.ts'
 import { setPaneOpen } from './paneState.ts'
-import { ageLabel, deriveChip, STATE_DOT, slotTone } from './slotState.ts'
+import { ageLabel, backendLabel, deriveChip, STATE_DOT, slotTone } from './slotState.ts'
 import { CollapsibleCard } from './card.tsx'
 import type { CardPreviewStat } from './card.tsx'
 import { MONO, Row, muted } from './row.tsx'
@@ -219,6 +219,101 @@ function SlotsErrorCard({ slotsError }: { slotsError: string }) {
   )
 }
 
+/** Bytes → "5.00 GB" / "832 MB" / "1.2 KB"; 0 → "—". */
+function fmtBytes(n: number | null): string {
+  if (n === null || n === 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let v = n
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+}
+
+/** RFC3339 expiry → "in 4 m 32 s" / "expired 12 s ago"; null → "—". */
+function fmtExpiry(iso: string | null, now: number): string {
+  if (iso === null) return '—'
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return '—'
+  const d = t - now
+  if (d <= 0) {
+    const s = Math.round(-d / 1000)
+    return s < 60 ? `expired ${s} s ago` : `expired ${Math.floor(s / 60)} m ago`
+  }
+  const s = Math.round(d / 1000)
+  if (s < 60) return `in ${s} s`
+  return `in ${Math.floor(s / 60)} m ${s % 60} s`
+}
+
+/**
+ * P8 Ollama: the resident-models card (spec §4.2 / §6). Ollama has no slots,
+ * so this is the pane's primary card. Shows `/api/ps` (what's loaded in VRAM
+ * right now) with the library count from `/api/tags` as muted meta. A
+ * `fresh: false` section (transient /api/ps failure) renders dimmed with the
+ * error — the last-known resident state is simply not claimed.
+ */
+function OllamaCard({ ollama, now }: { ollama: OllamaSection; now: number }) {
+  const count = ollama.loaded.length
+  const first = count > 0 ? ollama.loaded[0].name : null
+  return (
+    <CollapsibleCard
+      storageKey="dsh.slotHealth.card.ollama"
+      label="MODELS"
+      tone="na"
+      defaultExpanded
+      dim={!ollama.fresh}
+      headerTitle="Click to expand: models resident in VRAM (source: /api/ps) and the local library count (source: /api/tags)"
+      accent={{
+        text: count > 0 ? `loaded ${count}` : 'no model',
+        color: '#22c55e',
+        title: count > 0 ? `${count} model${count === 1 ? '' : 's'} resident in VRAM` : 'Ollama is up but nothing is loaded',
+      }}
+      meta={
+        ollama.libraryCount !== null
+          ? { text: `${ollama.libraryCount} in library`, title: 'Local library size, from /api/tags' }
+          : undefined
+      }
+      preview={[
+        {
+          // `first` is null exactly when count === 0, so this is equivalent
+          // and keeps the string type.
+          text: first ?? '—',
+          title: count > 0 ? 'First resident model' : 'No resident model',
+        },
+      ]}
+    >
+      {!ollama.fresh && ollama.error !== null && (
+        <p style={{ ...muted, overflowWrap: 'anywhere' }}>{ollama.error}</p>
+      )}
+      {count === 0 && ollama.fresh && (
+        <p style={muted}>
+          Nothing loaded. Ollama evicts idle models after their keep-alive
+          (default 5 m); run a model to see it here.
+        </p>
+      )}
+      {ollama.loaded.map((m) => (
+        <div key={m.name} style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>{m.name}</span>
+            <span style={{ ...muted, fontSize: 12 }}>
+              {[m.family, m.parameterSize, m.quantization].filter((x) => x !== null).join(' · ') || '—'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+            <span title="Total model size, from /api/ps (size)">size {fmtBytes(m.size)}</span>
+            <span title="Bytes resident in VRAM, from /api/ps (size_vram)">vram {fmtBytes(m.sizeVram)}</span>
+            <span title="When Ollama will evict this model (keep_alive), from /api/ps (expires_at)">
+              keeps {fmtExpiry(m.expiresAt, now)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </CollapsibleCard>
+  )
+}
+
 export function SlotBody() {
   const { snapshot, error, lastAttempt } = useSlotHealth()
 
@@ -271,6 +366,17 @@ export function SlotBody() {
           <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: chip.dot, flexShrink: 0 }} />
           {chip.detail ?? chip.label}
         </span>
+        {/* P8: engine tag next to the rich state detail (spec §4.1). Shown
+            only when the detail (not the engine-prefixed label) is what's on
+            screen, so the engine never appears twice in the same row. */}
+        {chip.detail !== null && backendLabel(snapshot) !== null && (
+          <span
+            title={`engine: ${backendLabel(snapshot)}`}
+            style={{ fontSize: 12, color: 'color-mix(in srgb, currentColor 55%, transparent)' }}
+          >
+            · {backendLabel(snapshot)}
+          </span>
+        )}
         <span style={{ fontFamily: MONO, fontSize: 12, color: 'color-mix(in srgb, currentColor 70%, transparent)' }}>
           {originLabel(snapshot.origin)}
         </span>
@@ -295,6 +401,8 @@ export function SlotBody() {
       {snapshot.slots === null
         ? snapshot.slotsError !== null && <SlotsErrorCard slotsError={snapshot.slotsError} />
         : snapshot.slots.map((slot) => <SlotCard key={slot.id} slot={slot} />)}
+      {/* P8 Ollama: resident-models card (null ⇒ hidden, no hole). */}
+      {snapshot.ollama !== null && <OllamaCard ollama={snapshot.ollama} now={now} />}
       {/* P7: server-wide /metrics card (null ⇒ hidden, no hole). */}
       {snapshot.metrics !== null && <MetricsCard metrics={snapshot.metrics} />}
     </div>

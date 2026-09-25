@@ -49,12 +49,15 @@ const METRICS_TIMEOUT_MS = 2000
 let latest: HealthSnapshot = {
   ok: false,
   state: 'unknown',
+  backend: 'unknown',
+  backendVersion: null,
   latencyMs: null,
   lastError: 'sampling…',
   sampledAt: Date.now(),
   slots: null,
   slotsError: null,
   metrics: null,
+  ollama: null,
 }
 
 /** P7 metrics engine state (capability + baselines); owned by the sampler. */
@@ -138,12 +141,15 @@ async function tick(origin: string): Promise<void> {
     latest = {
       ok: false,
       state: 'unreachable',
+      backend: 'unknown',
+      backendVersion: null,
       latencyMs: null,
       lastError: String(err),
       sampledAt: Date.now(),
       slots: null,
       slotsError: null,
       metrics: null,
+      ollama: null,
     }
   } finally {
     sampling = false

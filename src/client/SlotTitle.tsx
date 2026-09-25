@@ -10,6 +10,10 @@ const STATE_COLOR: Record<EndpointState, string> = {
   idle: '#22c55e',
   unreachable: '#ef4444',
   unknown: '#8b93a7',
+  // P8 Ollama: both up-states are healthy (green) — the label, not the dot,
+  // carries the distinction; nothing here is an error.
+  'up-no-model': '#22c55e',
+  'up-loaded': '#22c55e',
 }
 
 /** Grey while there is no data yet, or the transport itself is failing. */

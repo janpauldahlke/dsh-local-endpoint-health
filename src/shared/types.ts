@@ -11,13 +11,42 @@
  * P2 adds per-slot state on top (see `SlotSample.state`), derived from
  * `is_processing` — never from token counts, because `n_prompt_tokens` reads
  * ~8369 while idle (retained context, not live work).
+ *
+ * P8 adds two Ollama states (spec: `agent/specs/ollama-backend.md` §5.3).
+ * Ollama has no `/health` and no slots, so its honest states are expressed
+ * via `/api/ps` (models resident in memory) — never via the llama vocabulary:
+ *   up-no-model — Ollama reachable, `/api/ps` → `{"models":[]}` (up, nothing
+ *                 loaded). A distinct honest state — not `idle`, not an error.
+ *   up-loaded   — Ollama reachable, ≥1 model resident. "Loaded" means
+ *                 *resident* (kept `keep_alive`, default 5 min), NOT busy.
  */
 
-/** P1 endpoint states. P2/P3 add slot-level states on top, not new top-level ones. */
-export type EndpointState = 'unreachable' | 'idle' | 'unknown'
+/**
+ * P1 endpoint states. P2/P3 add slot-level states on top, not new top-level
+ * ones. P8 adds the two Ollama states (see module header).
+ */
+export type EndpointState =
+  | 'unreachable'
+  | 'idle'
+  | 'unknown'
+  | 'up-no-model'
+  | 'up-loaded'
 
 /** Per-slot state, derived from `is_processing` only. */
 export type SlotState = 'busy' | 'idle'
+
+/**
+ * P8: which engine family serves the endpoint. Fingerprinted from response
+ * shape at probe time (spec: `agent/specs/ollama-backend.md` §3) — never
+ * guessed silently:
+ *   llama-cpp — `/health` → `{"status":"ok"}` and `/slots` → bare JSON array
+ *   ollama    — `/api/version` → JSON object with a non-empty string `version`
+ *   vllm      — `/health` → 2xx and `/metrics` → Prometheus text with a `vllm:` series
+ *   unknown   — reachable, but none of the above shapes
+ * The value is stable per endpoint (no per-tick churn) and drives the engine
+ * label in the pane header and the engine word on the dock chip.
+ */
+export type Backend = 'llama-cpp' | 'ollama' | 'vllm' | 'unknown'
 
 /**
  * One sample of a single llama-server slot (from `{origin}/slots`).
@@ -65,6 +94,48 @@ export interface SlotSample {
 }
 
 /**
+ * P8 (Ollama tier 2): one model currently resident in memory, from
+ * `{origin}/api/ps`. All fields are nullable where the API omits them;
+ * `size`/`sizeVram` are BYTES (client renders GiB). A model here is *loaded
+ * (resident)*, not *busy* — Ollama keeps it for `keep_alive` (default 5 min)
+ * after the last request, so the client must never label it "busy".
+ */
+export interface OllamaLoadedModel {
+  /** `name`, e.g. `mistral:latest`. */
+  name: string
+  /** Total model size in bytes. */
+  size: number
+  /** Bytes resident in VRAM (`size_vram`); null when absent. */
+  sizeVram: number | null
+  /** RFC3339 time Ollama will unload the model (`expires_at`); null when absent. */
+  expiresAt: string | null
+  /** `details.family`, e.g. `llama`; null when absent. */
+  family: string | null
+  /** `details.parameter_size`, e.g. `7.2B`; null when absent. */
+  parameterSize: string | null
+  /** `details.quantization_level`, e.g. `Q4_0`; null when absent. */
+  quantization: string | null
+}
+
+/**
+ * P8 (Ollama tier 2): the Ollama surface of the snapshot — everything the
+ * backend can honestly report (no `/metrics` exists, no slots exist). `null`
+ * when the backend is not Ollama or the fetch has not succeeded yet.
+ * `loaded: []` is a real state — "Ollama is up, nothing loaded" — never an
+ * error; the client renders it as a single honest line, not an empty hole.
+ */
+export interface OllamaSection {
+  /** True when this section reflects a `/api/ps` fetch made on the current tick. */
+  fresh: boolean
+  /** Short non-sensitive reason when not fresh (transient fetch failure); null when fresh. */
+  error: string | null
+  /** Models currently resident in memory (GET /api/ps). */
+  loaded: OllamaLoadedModel[]
+  /** Count of models in the local library (GET /api/tags); null when not fetched yet. */
+  libraryCount: number | null
+}
+
+/**
  * One sample of the local endpoint's health. Produced by `host/collect.ts`,
  * stamped with latch values by `host/latch.ts`, served by the plugin route
  * (wrapped in `HealthRouteResponse`), consumed by the client poller.
@@ -74,6 +145,10 @@ export interface HealthSnapshot {
   ok: boolean
   /** Derived state: unreachable (request failed), idle (200 + ok shape), unknown (reachable, wrong shape). */
   state: EndpointState
+  /** P8: fingerprinted engine family (see `Backend`); `unknown` until a shape is recognized. */
+  backend: Backend
+  /** P8: engine version string when the fingerprint exposes one (Ollama `/api/version`); null otherwise. */
+  backendVersion: string | null
   /** Round-trip latency in ms, measured only on completed requests (null when unreachable). */
   latencyMs: number | null
   /** Human-readable reason for the most recent failure; null when the last sample was fine. */
@@ -97,6 +172,12 @@ export interface HealthSnapshot {
    * capability is known-`yes` keeps the last good values with `fresh: false`.
    */
   metrics: MetricsSection | null
+  /**
+   * P8 (Ollama tier 2): Ollama surface (`/api/ps` loaded models + `/api/tags`
+   * library count). `null` when the backend is not Ollama or no fetch has
+   * succeeded yet. Ollama has no `/metrics` and no slots — never invent either.
+   */
+  ollama: OllamaSection | null
 }
 
 /**

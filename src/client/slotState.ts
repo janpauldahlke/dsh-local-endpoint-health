@@ -8,15 +8,23 @@
  *   waiting     — no snapshot yet, no error (before the first poll lands)
  *   unreachable — endpoint down (route refused / timeout / 5xx)
  *   unknown     — reachable, but not a recognizable server shape
+ *   no-model    — P8 Ollama: up, `/api/ps` → `{"models":[]}` (distinct honest
+ *                 state — not idle, not an error)
+ *   loaded      — P8 Ollama: up, ≥1 model resident (resident ≠ busy)
  *   error       — slots 401/404/5xx (endpoint up, slot data unavailable)
  *   busy        — at least one slot is processing
  *   idle        — all slots idle (or endpoint up with no slot data)
+ *
+ * P8: when `snapshot.backend` names an engine (`llama` / `ollama` / `vllm`),
+ * the stable label is prefixed with it (`ollama · loaded`) so the engine is
+ * visible even from the collapsed dock chip. `unknown` never gets a prefix —
+ * the label must not fabricate an engine.
  *
  * `stale` is an overlay, not a top-level state: the chip dims when the
  * latest sample is older than STALE_MS, regardless of which state it's in.
  */
 import type { SlotHealthLive } from './useSlotHealth.ts'
-import type { SlotSample } from '../shared/types.ts'
+import type { Backend, SlotSample } from '../shared/types.ts'
 
 /** Milliseconds after which a sample is considered stale (3 missed polls at 1 Hz). */
 export const STALE_MS = 3000
@@ -26,6 +34,8 @@ export type ChipState =
   | 'unreachable'
   | 'error'
   | 'unknown'
+  | 'no-model'
+  | 'loaded'
   | 'busy'
   | 'idle'
 
@@ -59,8 +69,56 @@ export const STATE_DOT: Record<ChipState, string> = {
   unreachable: '#ef4444',
   error: '#ef4444',
   unknown: '#f59e0b',
+  // P8 Ollama up-states: both healthy (green); the label carries the
+  // distinction (no model / loaded), the dot says "server is fine".
+  'no-model': '#22c55e',
+  loaded: '#22c55e',
   busy: '#3b82f6',
   idle: '#22c55e',
+}
+
+/**
+ * P8: the short engine word for the chip label prefix, or null when the
+ * backend is not recognized (no prefix — never fabricate an engine).
+ * `llama-cpp` renders as `llama` (short, stable-width, matches the chip's
+ * small type).
+ */
+export function backendWord(backend: Backend): string | null {
+  switch (backend) {
+    case 'llama-cpp':
+      return 'llama'
+    case 'ollama':
+      return 'ollama'
+    case 'vllm':
+      return 'vllm'
+    default:
+      return null
+  }
+}
+
+/**
+ * P8: the friendly engine name for the pane top (spec §4.1) — the long
+ * product spelling, plus the backend version when it is known (Ollama
+ * exposes one; llama-server does not through the /health oracle). Returns
+ * `null` when the backend is not recognized so the pane shows nothing rather
+ * than a fabricated engine.
+ */
+export function backendLabel(
+  snapshot: { backend: Backend; backendVersion?: string | null } | null,
+): string | null {
+  if (snapshot === null) return null
+  switch (snapshot.backend) {
+    case 'llama-cpp':
+      return 'llama.cpp'
+    case 'ollama':
+      return snapshot.backendVersion !== null && snapshot.backendVersion !== ''
+        ? `ollama ${snapshot.backendVersion}`
+        : 'ollama'
+    case 'vllm':
+      return 'vllm'
+    default:
+      return null
+  }
 }
 
 /**
@@ -111,13 +169,18 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
   const age = now - snapshot.sampledAt
   const stale = age > STALE_MS
 
+  // P8: prefix the stable label with the engine word (`ollama · loaded`).
+  // `backend` is stable per endpoint, so the chip never changes width.
+  const engine = backendWord(snapshot.backend)
+  const label = (base: string): string => (engine === null ? base : `${engine} · ${base}`)
+
   // --- 4. Endpoint unreachable ---
   if (snapshot.state === 'unreachable') {
     const detail = snapshot.lastError ? ` — ${snapshot.lastError}` : ''
     return {
       state: 'unreachable',
       dot: STATE_DOT.unreachable,
-      label: 'down',
+      label: label('down'),
       detail: null,
       stale,
       title: withStale(`slot-health — endpoint unreachable${detail}`, stale, age),
@@ -130,10 +193,40 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
     return {
       state: 'unknown',
       dot: STATE_DOT.unknown,
-      label: 'unknown',
+      label: label('unknown'),
       detail: null,
       stale,
       title: withStale(`slot-health — endpoint shape not recognized${detail}`, stale, age),
+    }
+  }
+
+  // --- 5a. P8 Ollama: up, nothing loaded (distinct honest state) ---
+  if (snapshot.state === 'up-no-model') {
+    return {
+      state: 'no-model',
+      dot: STATE_DOT['no-model'],
+      label: label('no model'),
+      detail: null,
+      stale,
+      title: withStale('slot-health — Ollama is up, no model loaded', stale, age),
+    }
+  }
+
+  // --- 5b. P8 Ollama: up, ≥1 model resident (resident ≠ busy) ---
+  if (snapshot.state === 'up-loaded') {
+    const loaded = snapshot.ollama?.loaded ?? []
+    const first = loaded.length > 0 ? loaded[0].name : null
+    return {
+      state: 'loaded',
+      dot: STATE_DOT.loaded,
+      label: label('loaded'),
+      detail: first !== null ? `loaded · ${first}` : 'loaded',
+      stale,
+      title: withStale(
+        `slot-health — Ollama: ${loaded.length} model${loaded.length === 1 ? '' : 's'} resident` +
+          (first !== null ? ` (${first})` : ''),
+        stale, age,
+      ),
     }
   }
 
@@ -145,7 +238,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
     return {
       state: 'error',
       dot: STATE_DOT.error,
-      label: isAuth ? 'auth' : 'slots',
+      label: label(isAuth ? 'auth' : 'slots'),
       detail: null,
       stale,
       title: withStale(`slot-health — slots: ${snapshot.slotsError}`, stale, age),
@@ -166,7 +259,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
       dot: STATE_DOT.busy,
       // Stable: the dock chip must not widen every second as the age advances.
       // The pane header shows `detail` instead (REVIEW §2c).
-      label: 'busy',
+      label: label('busy'),
       detail: `busy ${ageLabel(maxAgeMs)}${totalDecoded > 0 ? ` · dec ${totalDecoded}` : ''}`,
       stale,
       title: withStale(`slot-health — busy for ${ageLabel(maxAgeMs)}${decodedDetail}`, stale, age),
@@ -177,7 +270,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
   return {
     state: 'idle',
     dot: STATE_DOT.idle,
-    label: 'idle',
+    label: label('idle'),
     detail: null,
     stale,
     title: withStale(
