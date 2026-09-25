@@ -6,6 +6,11 @@
  * State, color, label, and staleness all come from `slotState.deriveChip()`
  * — the same pure derivation the pane body uses, so the two surfaces can
  * never disagree.
+ *
+ * Chrome is copied from the GPU monitor's dock chip (GpuDockChip): same
+ * padding / radius / font / weight / tracking, same `currentColor`-mix
+ * border + background wash, glowing dot when fresh — so the two pills sit
+ * in the composer dock at the same height and read as siblings.
  */
 import { useEffect, useState } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
@@ -36,6 +41,9 @@ export function SlotDockChip({ onOpen }: Props): React.JSX.Element | null {
 
   const display = deriveChip(live, now)
   const stale = display.stale
+  // Dot glows while we have a sample and it is fresh (GPU-chip behaviour);
+  // waiting / transport-error = no data, no glow.
+  const hasData = display.state !== 'waiting' && display.state !== 'error'
 
   return (
     <button
@@ -46,29 +54,31 @@ export function SlotDockChip({ onOpen }: Props): React.JSX.Element | null {
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '5px',
+        gap: 5,
+        fontSize: 11.5,
+        fontWeight: 600,
+        letterSpacing: '0.03em',
+        whiteSpace: 'nowrap',
         padding: '1px 8px',
         borderRadius: 999,
-        border: '1px solid rgba(128,128,128,0.25)',
-        background: 'transparent',
+        border: '1px solid color-mix(in srgb, currentColor 22%, transparent)',
+        background: 'color-mix(in srgb, currentColor 6%, transparent)',
         color: 'inherit',
-        fontSize: '11.5px',
-        lineHeight: 1,
         fontVariantNumeric: 'tabular-nums',
         cursor: 'pointer',
         opacity: stale ? 0.55 : 1,
         transition: 'opacity 200ms',
-        whiteSpace: 'nowrap',
       }}
     >
       <span
         aria-hidden
         style={{
-          display: 'inline-block',
           width: 7,
           height: 7,
           borderRadius: '50%',
           background: display.dot,
+          display: 'inline-block',
+          boxShadow: hasData && !stale ? `0 0 5px ${display.dot}` : 'none',
           flexShrink: 0,
         }}
       />

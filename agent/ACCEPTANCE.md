@@ -114,3 +114,7 @@ Machine-verified:
      not-fresh metrics dims the card, not the theme.
   6. No regression: dock chip unchanged (stable word, hides while pane open); ECG guide icon unchanged;
      row tooltips still present inside the cards.
+  7. **Dock pills align** (chip-chrome follow-up, same commit batch): the Slot Health dock chip now has the
+     GPU Monitor chip's exact chrome — same height (no `lineHeight: 1`), `fontWeight 600` + `0.03em` tracking,
+     `currentColor 22%` border, `currentColor 6%` background wash, glowing dot while fresh. Next to the GPU
+     pill in the dock below the composer, the two should read as the same size and shape (both themes).

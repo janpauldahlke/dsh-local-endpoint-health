@@ -22,6 +22,8 @@ gotchas in SKILL "Corrections learned the hard way."
   `43/19.5 tok/s · acc 65%` (per-stat titles), window as header meta, not-fresh → dimmed.
 - `row.tsx`: meter is now `{ ratio, tooltip }` (GPU API — dedicated meter tooltips) + `caption?`
   (context row shows free tokens). **83/83 tests**, tsc + build clean.
+- Dock chip chrome copied from `GpuDockChip` (height / weight 600 / `0.03em` tracking /
+  `currentColor 22%` border / `6%` wash / glowing dot) so both pills align in the composer dock.
 - Served `:3090` combo re-fetched (38 KB, 200): all card markers present; live route healthy
   (slot 0 busy from the agent's own request, metrics fresh, acc lifetime n=106072).
 
