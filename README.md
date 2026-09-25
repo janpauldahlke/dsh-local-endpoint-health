@@ -9,6 +9,10 @@ Built and verified against live backends on the same box: **llama.cpp** on
 `:8080` (Qwen3.8 27B) and **Ollama** on `:11434` (including dual-GPU
 `OLLAMA_SCHED_SPREAD` with a 35B MoE).
 
+**See also:** [`dsh-gpu-monitor-nvml`](https://github.com/janpauldahlke/dsh-gpu-monitor-nvml)
+— NVIDIA GPU util / VRAM / power pane for the same DSH web rightbar (same lab,
+same dual-face plugin shape).
+
 ## Requirements
 
 - DeepSeek Harness web profile (`dsh web`).
@@ -238,7 +242,8 @@ contract, scaffold a dual-face package, build a read-only sampler against
 llama.cpp `/health` `/slots` `/metrics`, add Ollama fingerprint + MODELS, polish
 cards/tooltips/dock chip, and re-check every pass on a dedicated acceptance
 port — without touching sacred ports (`:3080` main dsh, `:8080` llama-server,
-`:11434` ollama). Companion to [`dsh-gpu-monitor-nvml`](https://github.com/janpauldahlke/dsh-gpu-monitor-nvml)
+`:11434` ollama). Built as a companion to
+[`dsh-gpu-monitor-nvml`](https://github.com/janpauldahlke/dsh-gpu-monitor-nvml)
 on the same lab.
 
 ### Authors
@@ -258,6 +263,8 @@ reviewed.”
 
 The interesting part is the recursion: an agent helping build a health pane for
 the endpoint it is running on, with a human in the loop the whole way.
+
+
 
 ---
 
