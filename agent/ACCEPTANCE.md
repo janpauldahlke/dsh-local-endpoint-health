@@ -58,3 +58,31 @@ dock chip) instead of raw endpoint-level `snapshot.state`.
   5. Stale metrics (transient fetch failure while `yes`) keep last values dimmed with the error line.
 - Note: server restarts (model swap) reset the counters — `lifetime` figures restart from small samples; that is
   correct behavior, not a bug.
+
+## REVIEW §1+§2 — hardening + UI pass (agent-verified 2026-09-25, `7e9bc1e` / `021f2cb`)
+
+Machine-verified:
+- 76/76 tests (8 new `metricsFmt` smoke tests feed the exact pre-P7 section shape — `perPosLastRequest: null`,
+  bare-number draft figures, garbage — and assert: no throw, rows degrade, bare numbers render without a
+  denominator, `{value, sample}` renders `(n=…)`).
+- Served `:3090` combo re-fetched (28,341 B, HTTP 200, fresh rev — server rebooted after the env restart,
+  pid 454046, token at `/tmp/dsh-3090.log` line 1) and grepped: ECG path `M3 15 h5 l3 -7 l4 14 l3 -7 h7`,
+  `icon: SlotHealthGuideIcon`, `color-mix(in srgb, currentColor 22%/55%, transparent)`, `tabular-nums` ×4,
+  stable `label: "busy"` + `detail` template, `toPerPos` coercers — all present; hardcoded greys
+  (`#c3c9d6`, `rgba(139,147,167,…)`) gone from the client bundle.
+- Live `:3090` route returns the P7 shape end-to-end: `draftAcceptance.lifetime {value 0.647, sample 76990}`,
+  `perPosLastRequest []`, `promptTokensPerSec 267`, `ctxHighWater 102581`; slot 0 live-busy (real in-flight
+  request — `busyAgeMs` 79931, `ttftMs` 43919).
+- `:3080` (human-restarted, pid 440235) — human confirmed the pane renders there too; the old-host crash is
+  gone on both servers (new client hardens AND new host serves the P7 shape).
+
+- ⏳ pending-human (token URL, `/tmp/dsh-3090.log` line 1; same on `:3080`):
+  1. Pane rows are three-column (label | meter | right-aligned value): while a request runs, the number widths
+     change every second and **the meters do not shift**; values are tabular figures.
+  2. Busy: the dock chip word stays a stable `busy` (chip width does not grow with the age), while the pane
+     header shows the rich `busy 1 m 20 s · dec N` in blue — chip and header agree.
+  3. Guide list: the Slot Health capsule shows an **ECG pulse line**, not the default cube the GPU Monitor
+     capsule uses — the two capsules are visually distinct now.
+  4. Light + dark themes: slot rows, meters, and the metrics section stay readable (all ink is currentColor-mix;
+     no hard grey); stale sample still dims the whole body.
+  5. Tooltips: every row explains the metric and its source (`/slots` vs `/metrics`, counter-delta window).
