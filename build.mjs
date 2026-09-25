@@ -66,6 +66,20 @@ await build({
   logLevel: 'warning',
 })
 
+// ---- slotState (testable pure module) --------------------------------------
+// Rebuilt as a standalone entry so unit tests can import the chip state
+// derivation without pulling in the client bundle's browser externals.
+await build({
+  entryPoints: [join(root, 'src/client/slotState.ts')],
+  outfile: join(root, 'lib/slotState.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2024',
+  sourcemap: true,
+  logLevel: 'warning',
+})
+
 // ---- client half ----------------------------------------------------------
 await build({
   entryPoints: [join(root, 'src/client/index.tsx')],

@@ -22,9 +22,11 @@
  * payload has no timestamps, so these are null until the host has seen the
  * state across at least one transition (or the first decode).
  */
+import { useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
 import type { EndpointState, SlotSample } from '../shared/types.ts'
+import { setPaneOpen } from './paneState.ts'
 
 /** A sample older than this many ms is rendered dimmed (stale). */
 const STALE_MS = 3000
@@ -166,6 +168,13 @@ function SlotBlock({ slot }: { slot: SlotSample }) {
 
 export function SlotBody() {
   const { snapshot, error, lastAttempt } = useSlotHealth()
+
+  // Report mount/unmount to paneState so the dock chip hides while this
+  // pane is open (refcounted — safe with multiple sessions).
+  useEffect(() => {
+    setPaneOpen(true)
+    return () => setPaneOpen(false)
+  }, [])
 
   const now = lastAttempt ?? Date.now()
   const ageMs = snapshot ? now - snapshot.sampledAt : null
