@@ -1,55 +1,43 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 01:15 — **P0 DONE** (`090a524`) · **P1 RESTARTED FROM ZERO**
-**Phase:** **P1 (vertical slice)** — poll `/health` → route → pane reachable/unreachable/idle
+**Updated:** 2026-09-25 — **P0 DONE** (`090a524`) · **P1 host+client slice DONE** (uncommitted)
+**Phase:** **P1 (vertical slice)** complete — poll `/health` → route → client pane idle/unreachable
 
 Laws live in **`AGENTS.md`** (auto-loaded, survives compaction) — not repeated here.
 Facts live in **`ENV.md`**; style in **`STYLE.md`**; packaging gotchas in **SKILL "Corrections learned the hard way"**.
 
-## ⚠ Read first: P1 was restarted
+## P1 — what landed this run
 
-Previous P1 attempt was interrupted having **written nothing to disk**. It read ~8 files, designed in
-memory, hit the output token limit twice, compaction returned an **empty summary**. All seven `src/`
-files are still **P0's** — no partial P1 work exists to salvage. Start P1 fresh.
+- **`src/shared/types.ts`** — `HealthSnapshot` + `HealthRouteResponse` (JSON `{...snapshot, origin}`) single source of truth.
+- **`src/host/collect.ts`** — `/health` poller. **Never throws.** State table locked: fetch-exception/timeout/≥500 → `unreachable`; 2xx/3xx + body `status==="ok"` → `idle`; else → `unknown`. `latencyMs` on completed requests only (`null` when unreachable). `lastError` carries most-recent failure, reset to `null` on good sample. Timeout = 2 s module constant.
+- **`src/host/config.ts`** — Standard Schema v1 `{ origin }`; **`DEFAULT_ORIGIN`** = `http://127.0.0.1:8080`.
+- **`src/host/index.ts`** — route returns `{...snapshot, origin}`; `ctx.effect()` runs the 1 Hz sampler loop.
+- **`src/client/store.ts`** — module-level self-chaining fetch at 1 Hz vs `/api/dsh-slot-health`, `inFlight` guard, refcounted subscribe/unsubscribe, `cache:'no-store'`, per-tick 2500 ms `AbortController`. Two-stage abort: `'timeout'` → `"poll timed out after 2500 ms"`; `'stopped'` → no error.
+- **`src/client/useSlotHealth.ts`** — React binding `{ snapshot, error, lastAttempt }`.
+- **`src/client/SlotBody.tsx`** — 3 branches: transport-error → last-known origin + error; no-sample → "waiting for first sample…"; live → state chip + latency + elapsed + lastError. **`SlotTitle.tsx`** — live dot via `useSlotHealth`.
+- **`src/client/index.tsx`** — `TAB_ID='dsh-slot-health'`; `sidebarRightTabs.register` + `slots.inject('sidebar.right.pane.tab'/'…tab.title')`.
 
-Lesson, now law: **read ≤3–4 files, then WRITE.** Never announce a complete design without a file
-written in the same turn. Smallest file first → commit → continue.
+## Verified this run (agent-side)
 
-## New since P0
-
-- **`AGENTS.md`** at repo root — auto-loaded workspace instructions. Read it.
-- **SKILL** now has "Corrections learned the hard way" (the four P0 packaging discoveries: combo-URL
-  404 by design, `dsh web` implies profile, `main` required, route handler shape). Read before touching
-  `package.json` / `build.mjs` / client code.
-- **llama-server restarted 01:06** by human. Resolve pid live (`pgrep -x llama-server`) — never trust a
-  pid in a doc. Flags now `--reasoning on --reasoning-budget 2048 --metrics -np 1`. Re-verified:
-  `/health` 200 open; `/slots` + `/metrics` 200 with key `local`. **Reasoning ON, 2048 budget** →
-  expect visible thinking; pace for it.
-- **`:3090` OCCUPIED as of 01:20** — `node …/bin.js web --port 3090 --no-open` (pid 87515, booted 00:03
-  by the interrupted P1 run), still serving the **P0 stub**. Reuse it or verify by pid before killing
-  (SKILL.md §"Acceptance port"). Sacred `:3080` is a *different* pid (24993), same cmdline shape.
+- **AC1** — origin pointed at dead port `:59999` via `cordis.patch.yml` config → route reads `unreachable`, `lastError:"connection refused"`, confirmed **poll 1** (≤3). Origin 8080 restored after.
+- **AC2 (host-side)** — live origin → `state:idle`, `ok:true`, `latencyMs:1`, **`sampledAt` advances ~1 s/poll**. Client 1 Hz re-render = pending-human.
+- Served client bundle (8881 B, `rev=…-50`) contains all current markers (`waiting for first sample`, `sidebar.right.pane.tab`, …).
 
 ## Next 3
 
-1. [ ] Read `AGENTS.md` + SKILL "Corrections" (≤2 files), then `phases/P1-vertical-slice.md`
-2. [ ] **Write first:** snapshot type in `src/shared/types.ts` → commit; then `src/host/collect.ts`
-       `/health` poller (~2s timeout, never throws) → commit
-3. [ ] Route + client poller; verify via `curl :3090/api/dsh-slot-health` + dead-port origin for
-       `unreachable`. Pane render = `pending-human`
+1. [ ] Commit P1 host + client slice (build artifacts + `src/` + `agent/` docs together).
+2. [ ] pending-human: browser — rightbar tab renders; live = idle + "updated N s ago" **advances**; dead port = unreachable + error + age; chat stays usable.
+3. [ ] P2 slot meat — extend `HealthSnapshot` with per-slot data (base fields never reinterpreted).
 
 ## Checkpoints
 
 - [x] PLAN approved · Q1–Q10 LOCKED · AC1–AC13 · SPEC/STYLE/phases P0–P9 · `AGENTS.md`
-- [x] Live probes: auth required, `/v1/slots` **404 trap**, `/metrics` **200**, counters **cumulative**,
-      rate gauges **0 idle**, Ollama `/api/ps` = `{"models":[]}`
-- [x] `~/.local/bin/llama-dsh`: `--metrics` default (`LLAMA_METRICS=0` escape), 3 exec paths, dry-run verified
-- [x] **P0 scaffold** — activates on `:3090`; `lib/` committed; browser render = pending-human
-- [ ] **P1 vertical slice** ← you are here
+- [x] **P0 scaffold** — activates on `:3090`; `lib/` committed; browser render pending-human
+- [x] **P1 vertical slice** — host sampler + route + client poller + 3-branch pane; AC1/AC2 host-verified
 - [ ] P2 slot meat → P3 wedged → P4 errors → P5 auth → P6 chip → P7 metrics → P8 backends → P9 ship
 
 ## pending-human
 
-- **P0 browser check (first morning task):** open token URL (see `ACCEPTANCE.md` §Morning check);
-  confirm rightbar tab renders the placeholder. Server-side activation proven; browser execution unverified.
+- **P1 browser check (first morning task):** open token URL (`/tmp/dsh-3090.log`); rightbar tab `dsh-slot-health` renders. Live → idle + elapsed advances; dead port → unreachable + last error + age; chat UI stays usable.
 
 Keep ≤55 lines. Rewrite, don't append.

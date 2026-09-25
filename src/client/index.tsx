@@ -9,6 +9,9 @@
  * a type-only dependency (erased at build time).
  */
 import type { Context } from '@deepseek-ai/cordis'
+// Type-only import: activates the `Context.slots` declaration merge from the
+// renderer client package (erased at build time).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SidebarRightTabDefinition } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { SlotBody } from './SlotBody.tsx'
 import { SlotTitle } from './SlotTitle.tsx'

@@ -1,3 +1,5 @@
 - insert:
   - id: slot-health
     name: dsh-slot-health
+    config:
+      origin: http://127.0.0.1:8080
