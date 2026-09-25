@@ -1,35 +1,42 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 — **P0/P1 DONE** (`090a524`/`2069b8a`) · **P2–P5 on disk + verified** · **P6 dock chip in flight**
-**Phase:** **P6 dock chip** — chip in `conversation.composer.dock`, hidden while pane open, one shared state module.
+**Updated:** 2026-09-25 — **P0–P6 done, agent-verified** · P6 = `e93a772` · **P6 AC9 + P0/P1/P2 browser checks pending-human**
+**Phase:** complete through P6. Next phase = **P7 metrics**.
 
 Laws live in **`AGENTS.md`** (auto-loaded) — not repeated here. Facts in **`ENV.md`**; style in **`STYLE.md`**; packaging gotchas in SKILL "Corrections learned the hard way."
 
-## Done — P2–P5 (this run)
+## Done — P6 (this run)
 
-- **P2 slot meat + host age latch** — `src/shared/types.ts`: `SlotSample[]` on `HealthSnapshot` (latch fields `null`-when-n/a, never 0). `src/host/collect.ts` decodes `/slots`; `src/host/latch.ts` stamps `busySinceMs`/`busyAgeMs`/`ttftMs` host-side (`/slots` payload has no timestamps). `src/client/SlotBody.tsx` renders per-slot rows + meter.
-- **P3 wedged** — busy with `id_task` not advancing / `has_next_token` false. **P4 errors** — two failure layers (transport vs endpoint) + `slots === null` → `slotsError` (the "key?" state). **P5 auth** — key precedence via env, 10 s retry for rotation.
-- **Tests** — `test/latch.test.mjs` (13/13) for latch math; `tools/fixture-server.mjs` for live AC runs. Build + `tsc --noEmit` clean.
+- `paneState.ts` refcounted open tracker (chip renders `null` while pane mounted); `slotState.ts` pure derivation
+  `{snapshot,error,lastAttempt,now} → {state,dot,label,title,stale}` consumed by **both** chip and pane (cannot disagree);
+  `SlotDockChip.tsx`; `index.tsx` registers dock seat → `conversation.composer.dock` (`id:'slot-health'`, order -10),
+  `onOpen → ctx.sidebarRight.openTab`; `SlotBody.tsx` calls `setPaneOpen` on mount/unmount.
+- **AC10 machine-verified:** served `:3090` bundle has the dock registration + chip code; `deriveChip` state→label map unit-tested
+  25/25 (repo total 36/36); gpu-monitor coexists (distinct slot id, same `order: -10` — no collision); API with key → `state:"idle"`.
+- **CLI moved on:** dsh checkout is now `0.1.6-alpha.2` — `--profile`/`--dump-config` are **global** flags
+  (`dsh --profile web --dump-config`), plugin mgmt is `dsh plugin --profile web list`. Plugin loads fine under the new CLI.
 
-## Verified (agent-side) vs pending-human
+## Done — P2–P5 (`9b0f9ac`)
 
-- **P2 LIVE-verified** on `:8080`: idle→busy→idle observed; `busyAgeMs` advances, `ttftMs` latches on first decode.
-- **P3/P4/P5:** code present, AC runs partial (see ACCEPTANCE.md) — pending-human / needs fixture.
-- **P1 browser check** still pending-human (rightbar tab renders, elapsed advances).
+- P2 latch (`busySinceMs`/`busyAgeMs`/`ttftMs`, host-stamped — `/slots` has no timestamps) + per-slot rows/meter; LIVE-verified
+  idle→busy→idle on `:8080`. P3 wedged, P4 transport-vs-endpoint errors + `slotsError`, P5 env-key precedence + 10 s rotation retry.
 
-## P6 in flight — dock chip
+## Environment facts (2026-09-25)
 
-- `paneState.ts` refcounted open tracker (chip renders `null` while pane mounted); `slotState.ts` pure derivation `{snapshot,error,lastAttempt,now} → {state,dot,label,title,stale}` consumed by **both** chip and pane (cannot disagree); `SlotDockChip.tsx`; `index.tsx` registers `SlotDockSeat` → `conversation.composer.dock` (`id:'slot-health'`, order -10), `onOpen → ctx.sidebarRight.openTab`; `SlotBody.tsx` calls `setPaneOpen` on mount/unmount.
-- **AC9:** chip alone distinguishes busy / idle / error·auth / unreachable / stale, tab closed. **AC10:** unit test asserts state→label map.
+- Sacred: `:3080` (dsh web, pid 24993), `:8080` (llama-server, key len 6 in env — never print), `:11434` (ollama).
+- Acceptance `:3090` = pid 282715, `LLAMA_API_KEY` set (API returns real slots, `contextUsed` ~22k); token in `/tmp/dsh-3090.log` line 1.
+- Bundle: 5 MB combo URL (see `/tmp/combo-url.txt`) — entry served via `??` combo only; single-file `client.js?rev=` 404s by design.
 
 ## Next 3
 
-1. [ ] Write `slotState.ts` + `paneState.ts` + `SlotDockChip.tsx`; wire `index.tsx` + `SlotBody.tsx`.
-2. [ ] Rebuild → verify `lib/client.js` has dock registration; write slotState unit test; commit P2–P5, then P6.
-3. [ ] ACCEPTANCE.md P6 AC writeups; final STATUS; P7 metrics next.
+1. [ ] Human morning check: P6 AC9 chip states + P0/P1/P2 pane carry-over (`ACCEPTANCE.md` → "Morning check").
+2. [ ] Fix any morning-check findings; commit.
+3. [ ] P7 metrics — fresh phase file from `agent/SPEC.md`.
 
 ## pending-human
 
-- P1 browser: rightbar tab renders; live = idle + elapsed advances; dead port = unreachable + error + age.
+- P0/P1: tab renders; idle + "updated N s ago" ticks.
+- P6 AC9: chip alone distinguishes busy / idle / error·auth / unreachable / stale; no jitter while typing; light+dark readable;
+  no collision with gpu-monitor chip.
 
 Keep ≤55 lines. Rewrite, don't append.
