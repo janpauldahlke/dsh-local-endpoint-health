@@ -1,24 +1,43 @@
 {
   "name": "dsh-slot-health",
-  "version": "0.1.0",
-  "description": "Rightbar slot-health tab for local dsh endpoint health (placeholder skeleton; P1+ adds sampling and rendering).",
-  "license": "MIT",
+  "version": "1.0.0",
+  "description": "Live health pane for local LLM endpoints (llama.cpp slots + Ollama models) in the DeepSeek Harness web UI.",
   "type": "module",
-  "private": true,
   "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
   "files": [
-    "lib/",
-    "lib/client.js",
-    "README.md"
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "media"
   ],
   "scripts": {
     "build": "node build.mjs && tsc --noEmit",
+    "prepare": "node build.mjs || node -e \"console.warn('[dsh-slot-health] prepare: build skipped (build toolchain unavailable); relying on prebuilt lib/')\"",
     "test": "node --test"
   },
-  "exports": {
-    ".": "./lib/index.js",
-    "./client": "./lib/client.js"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janpauldahlke/dsh-slot-health.git"
   },
+  "homepage": "https://github.com/janpauldahlke/dsh-slot-health#readme",
+  "bugs": {
+    "url": "https://github.com/janpauldahlke/dsh-slot-health/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "llama.cpp",
+    "ollama",
+    "slot",
+    "health",
+    "monitor"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -49,5 +68,15 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "author": {
+    "name": "Jan (HagbardCeline)",
+    "email": "jandareal@gmail.com"
+  },
+  "contributors": [
+    {
+      "name": "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF (coauthor)"
+    }
+  ],
+  "license": "MIT"
 }
