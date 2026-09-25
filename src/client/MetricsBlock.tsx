@@ -18,10 +18,17 @@
  *
  * A not-fresh section (transient fetch failure while capability is `yes`)
  * keeps its last values but is dimmed, with the error shown.
+ *
+ * REVIEW §1 (hardening): every field is coerced through `./metricsFmt.ts`
+ * (pure, unit-tested) before rendering. A pre-P7 host serves
+ * `perPosLastRequest: null` and bare-number draft figures; the coercers
+ * degrade those to "fewer rows" instead of throwing (the old code crashed
+ * the whole pane on `null.length`).
  */
 import type { CSSProperties, ReactNode } from 'react'
-import type { DraftFigure, MetricsSection } from '../shared/types.ts'
+import type { MetricsSection } from '../shared/types.ts'
 import { ageLabel } from './slotState.ts'
+import { fmtFigure, fmtPerPos, metricsHasRows, toFigure, toPerPos } from './metricsFmt.ts'
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
@@ -55,26 +62,17 @@ function Row({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
-/** `0.867 (n=30)` — the figure plus the denominator that backs it. */
-function fmtFigure(figure: DraftFigure | null): string | null {
-  if (figure === null) return null
-  return `${figure.value} (n=${figure.sample})`
-}
-
 export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
-  const accLife = fmtFigure(metrics.draftAcceptance.lifetime)
-  const accLast = fmtFigure(metrics.draftAcceptance.lastRequest)
-  const lenLife = fmtFigure(metrics.draftMeanLen.lifetime)
-  const lenLast = fmtFigure(metrics.draftMeanLen.lastRequest)
-  const perPos = metrics.perPosLastRequest
-  const specRows = [accLife, accLast, lenLife, lenLast].some((v) => v !== null) || perPos.length > 0
-  const anyRate = metrics.promptTokensPerSec !== null || metrics.tokensPerSec !== null
-  const anyGauge =
-    metrics.requestsDeferred !== null ||
-    metrics.requestsProcessing !== null ||
-    metrics.contextHighWater !== null
-  const hasRows = anyRate || anyGauge || specRows
+  // Coerce before rendering — see the module doc (REVIEW §1).
+  const accLife = fmtFigure(toFigure(metrics.draftAcceptance.lifetime))
+  const accLast = fmtFigure(toFigure(metrics.draftAcceptance.lastRequest))
+  const lenLife = fmtFigure(toFigure(metrics.draftMeanLen.lifetime))
+  const lenLast = fmtFigure(toFigure(metrics.draftMeanLen.lastRequest))
+  const perPos = toPerPos(metrics.perPosLastRequest)
+  const specRows =
+    accLife !== null || accLast !== null || lenLife !== null || lenLast !== null || perPos.length > 0
 
+  const hasRows = metricsHasRows(metrics)
   if (!hasRows) return null
 
   const windowLabel = metrics.rateWindowMs > 0 ? `${ageLabel(metrics.rateWindowMs)} window` : null
@@ -100,12 +98,7 @@ export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
           {accLast !== null && <Row label="acc · last req" value={accLast} />}
           {lenLife !== null && <Row label="len · lifetime" value={lenLife} />}
           {lenLast !== null && <Row label="len · last req" value={lenLast} />}
-          {perPos.length > 0 && (
-            <Row
-              label="per-pos · last"
-              value={perPos.map((p) => `p${p.position} ${p.acceptance}`).join(' · ')}
-            />
-          )}
+          {perPos.length > 0 && <Row label="per-pos · last" value={fmtPerPos(perPos)} />}
         </>
       )}
       {!metrics.fresh && metrics.error !== null && (

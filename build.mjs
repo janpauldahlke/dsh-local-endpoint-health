@@ -94,6 +94,20 @@ await build({
   logLevel: 'warning',
 })
 
+// ---- metricsFmt (testable pure module) -------------------------------------
+// Rebuilt as a standalone entry so unit tests can feed the metrics pane
+// coercers old/new section shapes without pulling in browser externals.
+await build({
+  entryPoints: [join(root, 'src/client/metricsFmt.ts')],
+  outfile: join(root, 'lib/metricsFmt.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2024',
+  sourcemap: true,
+  logLevel: 'warning',
+})
+
 // ---- client half ----------------------------------------------------------
 await build({
   entryPoints: [join(root, 'src/client/index.tsx')],
