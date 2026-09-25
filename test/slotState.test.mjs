@@ -9,7 +9,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { deriveChip, ageLabel, STALE_MS } from '../lib/slotState.mjs'
+import { deriveChip, ageLabel, STALE_MS, slotTone, WEDGED_AFTER_MS } from '../lib/slotState.mjs'
 
 // Fixed clock so staleness arithmetic is exact.
 const NOW = 1_700_000_000_000
@@ -229,4 +229,36 @@ test('ageLabel: ≥60s → "Nm" or "NmNs"', () => {
 
 test('STALE_MS is 3000', () => {
   assert.equal(STALE_MS, 3000)
+})
+
+// ---------------------------------------------------------------------------
+// slotTone — P3 wedged heuristic (REVIEW2 §2c crit border)
+// ---------------------------------------------------------------------------
+
+test('slotTone: idle slot → na', () => {
+  assert.equal(slotTone(slot()), 'na')
+})
+
+test('slotTone: busy under 300 s → na (any progress state)', () => {
+  assert.equal(slotTone(slot({ state: 'busy', busyAgeMs: 1000, promptProgress: 1, decoded: 0 })), 'na')
+})
+
+test('slotTone: prompt still climbing at 400 s → na (healthy long prefill, never wedged)', () => {
+  assert.equal(slotTone(slot({ state: 'busy', busyAgeMs: 400_000, promptProgress: 0.9, decoded: 0 })), 'na')
+})
+
+test('slotTone: prompt done + zero decoded at 400 s → crit (wedged)', () => {
+  assert.equal(slotTone(slot({ state: 'busy', busyAgeMs: 400_000, promptProgress: 1, decoded: 0 })), 'crit')
+})
+
+test('slotTone: prompt done but tokens decoding at 400 s → na (legit long request)', () => {
+  assert.equal(slotTone(slot({ state: 'busy', busyAgeMs: 400_000, promptProgress: 1, decoded: 5 })), 'na')
+})
+
+test('slotTone: promptProgress null at 400 s + zero decoded → na (no evidence of done)', () => {
+  assert.equal(slotTone(slot({ state: 'busy', busyAgeMs: 400_000, promptProgress: null, decoded: 0 })), 'na')
+})
+
+test('WEDGED_AFTER_MS is 300_000 (DSH streamIdleTimeoutMs)', () => {
+  assert.equal(WEDGED_AFTER_MS, 300_000)
 })

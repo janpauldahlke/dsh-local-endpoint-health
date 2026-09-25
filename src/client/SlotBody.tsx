@@ -6,39 +6,40 @@
  * advances even while the endpoint is stable. Self-contained (no props):
  * the slot registry mounts it bare.
  *
+ * Pane skeleton (REVIEW2 §2a): a flat header (state dot + rich chip detail +
+ * origin, latency/updated band) and a stack of **cards** — one per slot,
+ * plus the server-metrics card. Card chrome, collapse, and the collapsed
+ * preview are the shared `CollapsibleCard` (GpuCard constants, REVIEW2 §2c).
+ *
  * Header state → color/label comes from `slotState.deriveChip()` — the same
- * pure derivation the dock chip uses, so the two surfaces cannot disagree
- * (the header previously rendered the raw endpoint-level `snapshot.state`,
- * which showed green "idle" while a slot was busy). The header shows the
- * rich `detail` label (`busy 22s · dec 892`); the dock chip shows the stable
- * short `label` so the dock row never shifts (REVIEW §2c).
+ * pure derivation the dock chip uses, so the two surfaces cannot disagree.
+ * The header shows the rich `detail` label (`busy 22s · dec 892`); the dock
+ * chip shows the stable short `label` so the dock row never shifts.
  *
  * Two distinct failure layers:
  *   transport error — the plugin route itself failed → "no data — <error>"
  *   endpoint error  — route fine, endpoint down → state chip + snapshot.lastError
  *
- * P2: per-slot metric rows below the P1 rows. `snapshot.slots` is an array
- * (possibly empty) when `/slots` worked; `null` when it could not be used
- * (401/404/5xx/garbage), in which case `slotsError` is shown. Busy age and
- * TTFT come from host-side latches (`busyAgeMs`, `ttftMs`) — the `/slots`
- * payload has no timestamps, so these are null until the host has seen the
- * state across at least one transition (or the first decode).
+ * P2: per-slot rows; P7: `MetricsCard` (server-wide /metrics rows) — null
+ * section ⇒ card hidden, no layout hole. REVIEW §1: every metrics field is
+ * coerced before rendering (stale-host shapes degrade, never throw).
  *
- * P7: `MetricsBlock` (server-wide /metrics rows) renders below the slot
- * blocks; null section ⇒ hidden, no layout hole.
- *
- * REVIEW §2: rows use the GPU-monitor three-column layout (./row.tsx) with
- * color-mix ink — no hardcoded greys, no meter sliding under variable
- * number widths.
+ * REVIEW2: REVIEW §2's three-column rows now live inside collapsible cards
+ * with a small collapsed preview (state word + key numbers, each with its
+ * own native tooltip). Default expand policy: slot cards expand while busy /
+ * wedged and collapse when idle; the metrics card is collapsed by default.
+ * An explicit user toggle persists in localStorage and wins over the policy.
  */
 import { useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
 import type { SlotSample } from '../shared/types.ts'
 import { setPaneOpen } from './paneState.ts'
-import { deriveChip, STATE_DOT } from './slotState.ts'
-import { HAIRLINE, MONO, Row, muted } from './row.tsx'
-import { MetricsBlock } from './MetricsBlock.tsx'
+import { ageLabel, deriveChip, STATE_DOT, slotTone } from './slotState.ts'
+import { CollapsibleCard } from './card.tsx'
+import type { CardPreviewStat } from './card.tsx'
+import { MONO, Row, muted } from './row.tsx'
+import { MetricsCard } from './MetricsBlock.tsx'
 
 /** A sample older than this many ms is rendered dimmed (stale). */
 const STALE_MS = 3000
@@ -76,25 +77,30 @@ function fmtInt(n: number): string {
   return n.toLocaleString('en-US')
 }
 
-/** One slot's metric rows (P2). */
-function SlotBlock({ slot }: { slot: SlotSample }) {
-  const busy = slot.state === 'busy'
-  const promptPct = slot.promptProgress !== null ? Math.round(slot.promptProgress * 100) : null
-  const ctxPct = slot.contextPressure !== null ? Math.round(slot.contextPressure * 100) : null
+function pctOf(ratio: number | null): string | null {
+  return ratio === null ? null : `${Math.round(ratio * 100)}%`
+}
+
+/** One slot's rows (P2) — rendered in the card body. */
+function SlotRows({ slot }: { slot: SlotSample }) {
+  const promptPct = pctOf(slot.promptProgress)
+  const ctxPct = pctOf(slot.contextPressure)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 6, borderTop: HAIRLINE }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <b>slot {slot.id}</b>
-        <span style={{ fontWeight: 600, color: busy ? STATE_DOT.busy : STATE_DOT.idle, fontVariantNumeric: 'tabular-nums' }}>
-          {busy ? 'busy' : 'idle'}
-        </span>
-        {busy && slot.idTask !== null && <span style={muted}>{slot.idTask}</span>}
-      </div>
+    <>
+      {slot.state === 'busy' && slot.idTask !== null && (
+        <span style={muted}>task {slot.idTask}</span>
+      )}
       <Row
         label="prompt"
-        value={`${fmtInt(slot.promptTokensProcessed)} / ${fmtInt(slot.promptTokens)}${promptPct !== null ? ` (${promptPct}%)` : ''}`}
-        meter={slot.promptProgress}
-        tooltip="Prompt tokens processed vs total for this request, from /slots (prompt_tokens / prompt_tokens_total). The bar is the processed share."
+        value={`${fmtInt(slot.promptTokensProcessed)} / ${fmtInt(slot.promptTokens)}${promptPct !== null ? ` (${promptPct})` : ''}`}
+        meter={{
+          ratio: slot.promptProgress,
+          tooltip:
+            promptPct !== null
+              ? `Prompt ${promptPct} of ${fmtInt(slot.promptTokens)} tokens`
+              : 'Prompt progress — no prompt to progress through',
+        }}
+        tooltip="Prompt tokens processed vs total for this request, from /slots (prompt_tokens / prompt_tokens_total). The meter is the processed share."
       />
       <Row
         label="decoded"
@@ -113,11 +119,103 @@ function SlotBlock({ slot }: { slot: SlotSample }) {
       />
       <Row
         label="context"
-        value={`${fmtInt(slot.contextUsed)} / ${fmtInt(slot.contextSize)}${ctxPct !== null ? ` (${ctxPct}%)` : ''}`}
-        meter={slot.contextPressure}
-        tooltip="Context used vs the slot's configured n_ctx, from /slots. The bar is the pressure share."
+        value={`${fmtInt(slot.contextUsed)} / ${fmtInt(slot.contextSize)}${ctxPct !== null ? ` (${ctxPct})` : ''}`}
+        caption={slot.contextSize > slot.contextUsed ? `${fmtInt(slot.contextSize - slot.contextUsed)} free` : undefined}
+        meter={{
+          ratio: slot.contextPressure,
+          tooltip:
+            ctxPct !== null
+              ? `Context ${ctxPct} of n_ctx ${fmtInt(slot.contextSize)}`
+              : 'Context pressure — n_ctx not positive',
+        }}
+        tooltip="Context used vs the slot's configured n_ctx, from /slots. The caption is the free remainder."
       />
-    </div>
+    </>
+  )
+}
+
+/** One slot's collapsed preview (REVIEW2 §2b). */
+function slotPreview(slot: SlotSample, wedged: boolean): CardPreviewStat[] {
+  const out: CardPreviewStat[] = []
+  const ctxPct = pctOf(slot.contextPressure)
+  if (ctxPct !== null) {
+    out.push({
+      text: `ctx ${ctxPct}`,
+      title: 'Context used / n_ctx, from /slots',
+      ...(wedged ? { tone: 'crit' as const } : {}),
+    })
+  }
+  if (slot.state === 'busy') {
+    out.push({
+      text: `busy ${slot.busyAgeMs !== null ? ageLabel(slot.busyAgeMs) : '—'}`,
+      title: wedged
+        ? 'Wedged: prompt fully processed, nothing decoded, busy 300 s+ (P3 heuristic)'
+        : 'How long this slot has been busy (host-latched)',
+      ...(wedged ? { tone: 'crit' as const } : {}),
+    })
+    out.push({
+      text: `dec ${fmtInt(slot.decoded)}`,
+      title: 'Decoded tokens so far in this request, from /slots',
+    })
+    const promptPct = pctOf(slot.promptProgress)
+    if (promptPct !== null) {
+      out.push({
+        text: `prompt ${promptPct}`,
+        title: 'Prompt tokens processed / total, from /slots',
+      })
+    }
+  } else {
+    out.push({
+      text: `dec ${fmtInt(slot.decoded)}`,
+      title: 'Decoded tokens so far in this request, from /slots',
+    })
+    out.push({ text: 'busy —', title: 'Not busy right now' })
+  }
+  return out
+}
+
+function SlotCard({ slot }: { slot: SlotSample }) {
+  const tone = slotTone(slot)
+  const busy = slot.state === 'busy'
+  const accent =
+    tone === 'crit'
+      ? {
+          text: 'wedged',
+          color: STATE_DOT.busy, // the card overrides with the crit tone color
+          title: 'Prompt fully processed, nothing decoded, busy 300 s+ (P3 wedged heuristic)',
+        }
+      : busy
+        ? { text: 'busy', color: STATE_DOT.busy, title: 'is_processing — a request is in flight' }
+        : { text: 'idle', color: STATE_DOT.idle, title: 'No request in flight' }
+  return (
+    <CollapsibleCard
+      storageKey={`dsh.slotHealth.card.slot.${slot.id}`}
+      label={`SLOT ${slot.id}`}
+      tone={tone}
+      defaultExpanded={busy}
+      headerTitle="Click to expand: prompt, decoded, busy, ttft, context rows (source: /slots)"
+      accent={accent}
+      preview={slotPreview(slot, tone === 'crit')}
+    >
+      <SlotRows slot={slot} />
+    </CollapsibleCard>
+  )
+}
+
+/** Endpoint up but /slots unusable (401 auth / 404 / 5xx / garbage). */
+function SlotsErrorCard({ slotsError }: { slotsError: string }) {
+  const isAuth = /401|auth/i.test(slotsError)
+  return (
+    <CollapsibleCard
+      storageKey="dsh.slotHealth.card.slots"
+      label="SLOTS"
+      tone="crit"
+      defaultExpanded
+      headerTitle="Click to expand: why slot data is unavailable"
+      preview={[{ text: isAuth ? 'auth' : 'slots', title: slotsError, tone: 'crit' }]}
+    >
+      <p style={{ ...muted, overflowWrap: 'anywhere' }}>{slotsError}</p>
+    </CollapsibleCard>
   )
 }
 
@@ -164,6 +262,7 @@ export function SlotBody() {
 
   return (
     <div style={{ ...container, opacity: stale ? 0.55 : 1 }}>
+      {/* Pane header (not a card) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span
           title={chip.title}
@@ -192,13 +291,12 @@ export function SlotBody() {
       {snapshot.lastError !== null && (
         <p style={{ ...muted, overflowWrap: 'anywhere' }}>{snapshot.lastError}</p>
       )}
+      {/* One card per slot; null slots → the crit error card; [] → nothing */}
       {snapshot.slots === null
-        ? snapshot.slotsError !== null && (
-            <p style={{ ...muted, overflowWrap: 'anywhere' }}>slots: {snapshot.slotsError}</p>
-          )
-        : snapshot.slots.map((slot) => <SlotBlock key={slot.id} slot={slot} />)}
-      {/* P7: server-wide /metrics rows (null ⇒ section hidden, no hole). */}
-      {snapshot.metrics !== null && <MetricsBlock metrics={snapshot.metrics} />}
+        ? snapshot.slotsError !== null && <SlotsErrorCard slotsError={snapshot.slotsError} />
+        : snapshot.slots.map((slot) => <SlotCard key={slot.id} slot={slot} />)}
+      {/* P7: server-wide /metrics card (null ⇒ hidden, no hole). */}
+      {snapshot.metrics !== null && <MetricsCard metrics={snapshot.metrics} />}
     </div>
   )
 }

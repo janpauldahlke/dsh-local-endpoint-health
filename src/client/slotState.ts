@@ -16,6 +16,7 @@
  * latest sample is older than STALE_MS, regardless of which state it's in.
  */
 import type { SlotHealthLive } from './useSlotHealth.ts'
+import type { SlotSample } from '../shared/types.ts'
 
 /** Milliseconds after which a sample is considered stale (3 missed polls at 1 Hz). */
 export const STALE_MS = 3000
@@ -184,6 +185,24 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
       stale, age,
     ),
   }
+}
+
+/**
+ * P3: how long a busy slot may hold with nothing decoded before it reads as
+ * wedged. 300 s is DSH's `streamIdleTimeoutMs` — the moment the client gives
+ * up while the server still holds the slot. Evidence-based, not a bare timer
+ * (phases/P3-wedged.md): the prompt must be fully processed AND zero tokens
+ * decoded. Busy with prompt still climbing is healthy prefill; busy with
+ * decodes flowing is a long (legitimate) request — neither is wedged.
+ */
+export const WEDGED_AFTER_MS = 300_000
+
+/** Tone for a single slot card (REVIEW2 §2c border/preview escalation). */
+export function slotTone(slot: SlotSample): 'na' | 'crit' {
+  if (slot.state !== 'busy') return 'na'
+  if (slot.busyAgeMs === null || slot.busyAgeMs < WEDGED_AFTER_MS) return 'na'
+  const promptDone = slot.promptProgress !== null && slot.promptProgress >= 0.999
+  return promptDone && slot.decoded === 0 ? 'crit' : 'na'
 }
 
 /** Append a stale line to a tooltip string when the sample is stale. */

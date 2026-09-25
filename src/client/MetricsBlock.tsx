@@ -1,56 +1,34 @@
 /**
- * P7 — server-wide `/metrics` rows in the pane.
+ * P7 + REVIEW2 — server-wide `/metrics` rows as a collapsible card.
  *
- * Renders a `MetricsSection` from the snapshot. Every value is null-able and
- * a row renders only for a non-null value (types.ts contract), so the whole
- * block can vanish without leaving a layout hole — capability `no`, endpoint
- * down, or spec off all just mean fewer rows.
+ * Renders a `MetricsSection` inside the shared `CollapsibleCard` (GpuCard
+ * chrome). Collapsed by default (noisy when idle); the collapsed preview
+ * carries the key numbers — `prompt/decode tok/s` and lifetime draft
+ * acceptance — each with its own native tooltip (REVIEW2 §2b/§2d).
  *
- * AC6 (not a tok/s clone): the rows are the *server's own* counters —
- * counter-delta rates over the sample window, queue depth, context high-water,
- * and speculative-decode diagnostics. There is no per-GPU throughput here.
- *
- * AC12 (acceptance labeled lifetime vs delta): the draft acceptance / mean
- * length rows carry an explicit scope label — `lifetime` (cumulative since
- * server start) vs `last req` (the delta across the most recent completed
- * request's id_task boundary) — and each figure shows its denominator:
- * `0.87 (n=30)`. A bare ratio without n is untrustworthy (NOTES §Cause A
- * FROZEN).
+ * Every value is null-able and a row renders only for a non-null value
+ * (types.ts contract), so the whole card can vanish without leaving a layout
+ * hole — capability `no`, endpoint down, or spec off all just mean fewer
+ * rows. AC6: these are the *server's own* counters (counter-delta rates,
+ * queue depth, context high-water, spec diagnostics) — not a tok/s clone of
+ * the GPU monitor. AC12: acceptance / mean length rows are labeled lifetime
+ * vs last req and show their denominator (`0.87 (n=30)`).
  *
  * A not-fresh section (transient fetch failure while capability is `yes`)
- * keeps its last values but is dimmed, with the error shown.
+ * keeps its last values but the card is dimmed, with the error shown.
  *
  * REVIEW §1 (hardening): every field is coerced through `./metricsFmt.ts`
- * (pure, unit-tested) before rendering. A pre-P7 host serves
- * `perPosLastRequest: null` and bare-number draft figures; the coercers
- * degrade those to "fewer rows" instead of throwing (the old code crashed
- * the whole pane on `null.length`).
- *
- * REVIEW §2 (visual language): rows come from ./row.tsx — same three-column
- * rhythm and color-mix ink as the slot rows.
+ * (pure, unit-tested) before rendering — stale-host shapes degrade to fewer
+ * rows instead of throwing.
  */
-import type { CSSProperties } from 'react'
 import type { MetricsSection } from '../shared/types.ts'
 import { ageLabel } from './slotState.ts'
-import { HAIRLINE, Row, muted } from './row.tsx'
+import { CollapsibleCard } from './card.tsx'
+import type { CardPreviewStat } from './card.tsx'
+import { Row, muted } from './row.tsx'
 import { fmtFigure, fmtPerPos, metricsHasRows, toFigure, toPerPos } from './metricsFmt.ts'
 
-const block: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 2,
-  paddingTop: 6,
-  borderTop: HAIRLINE,
-}
-
-const sectionHeader: CSSProperties = {
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: 8,
-  marginBottom: 2,
-}
-
-export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
+export function MetricsCard({ metrics }: { metrics: MetricsSection }) {
   // Coerce before rendering — see the module doc (REVIEW §1).
   const accLife = fmtFigure(toFigure(metrics.draftAcceptance.lifetime))
   const accLast = fmtFigure(toFigure(metrics.draftAcceptance.lastRequest))
@@ -60,17 +38,43 @@ export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
   const specRows =
     accLife !== null || accLast !== null || lenLife !== null || lenLast !== null || perPos.length > 0
 
-  const hasRows = metricsHasRows(metrics)
-  if (!hasRows) return null
+  if (!metricsHasRows(metrics)) return null
+
+  // --- Collapsed preview (REVIEW2 §2b) ---
+  const preview: CardPreviewStat[] = []
+  const promptRate = metrics.promptTokensPerSec
+  const decodeRate = metrics.tokensPerSec
+  preview.push({
+    text:
+      promptRate !== null || decodeRate !== null
+        ? `${promptRate ?? '—'}/${decodeRate ?? '—'} tok/s`
+        : '—',
+    title: `Prompt / decode tokens per second — counter delta over the sample window, from the server's own /metrics`,
+  })
+  const accLifeFig = metrics.draftAcceptance.lifetime
+  if (accLifeFig !== null && accLife !== null) {
+    preview.push({
+      text: `acc ${Math.round(accLifeFig.value * 100)}%`,
+      title: `Draft acceptance, lifetime (n=${accLifeFig.sample}) — accepted / draft tokens since server start`,
+    })
+  }
 
   const windowLabel = metrics.rateWindowMs > 0 ? `${ageLabel(metrics.rateWindowMs)} window` : null
 
   return (
-    <div style={{ ...block, opacity: metrics.fresh ? 1 : 0.55 }}>
-      <div style={sectionHeader}>
-        <b>server metrics</b>
-        {windowLabel !== null && <span style={muted}>{windowLabel}</span>}
-      </div>
+    <CollapsibleCard
+      storageKey="dsh.slotHealth.card.metrics"
+      label="SERVER"
+      defaultExpanded={false}
+      dim={!metrics.fresh}
+      headerTitle="Click to expand: rates, queue depth, context high-water, speculative-decode rows (source: /metrics)"
+      meta={
+        windowLabel !== null
+          ? { text: windowLabel, title: 'Sample window the rates were derived over (ms since the last baseline)' }
+          : undefined
+      }
+      preview={preview}
+    >
       {metrics.promptTokensPerSec !== null && (
         <Row
           label="prompt /s"
@@ -103,7 +107,7 @@ export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
         <Row
           label="ctx peak"
           value={metrics.contextHighWater.toLocaleString('en-US')}
-          tooltip="Context high-water: largest token count any slot's context has reached since server start, from /metrics (llamacpp:context_peeked_total-style gauge). Resets on server restart."
+          tooltip="Context high-water: largest token count any slot's context has reached since server start, from /metrics. Resets on server restart."
         />
       )}
       {specRows && (
@@ -148,6 +152,6 @@ export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
       {!metrics.fresh && metrics.error !== null && (
         <p style={{ ...muted, overflowWrap: 'anywhere', marginTop: 2 }}>{metrics.error}</p>
       )}
-    </div>
+    </CollapsibleCard>
   )
 }
