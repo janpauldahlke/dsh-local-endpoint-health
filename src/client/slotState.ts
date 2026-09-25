@@ -33,16 +33,27 @@ export interface ChipDisplay {
   state: ChipState
   /** Dot color (hex). */
   dot: string
-  /** Short text label shown on the chip (the "meat"). */
+  /**
+   * Stable short label shown on the dock chip (`idle` / `busy` / `down` …).
+   * Never changes while the state persists — a variable-width label (age,
+   * decoded count) would widen the chip and shove the dock row every second
+   * (REVIEW §2c). The rich reading goes in `detail`/`title` instead.
+   */
   label: string
+  /**
+   * Richer label for surfaces with room (the pane header), e.g.
+   * `busy 22s · dec 892`; null when it adds nothing over `label`.
+   */
+  detail: string | null
   /** True when the latest sample is older than STALE_MS (dim the chip). */
   stale: boolean
   /** Tooltip text (multi-line, ends with a stale line when stale). */
   title: string
 }
 
-/** Hex colors per state, matching STYLE.md palette. */
-const STATE_DOT: Record<ChipState, string> = {
+/** Hex colors per state, matching STYLE.md palette. Exported so the pane's
+ *  per-slot state word uses the same colors the chip does (one palette). */
+export const STATE_DOT: Record<ChipState, string> = {
   waiting: '#8b93a7',
   unreachable: '#ef4444',
   error: '#ef4444',
@@ -77,6 +88,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
       state: 'error',
       dot: STATE_DOT.error,
       label: 'error',
+      detail: null,
       stale: false,
       title: `slot-health — ${error}`,
     }
@@ -88,6 +100,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
       state: 'waiting',
       dot: STATE_DOT.waiting,
       label: 'waiting',
+      detail: null,
       stale: false,
       title: 'slot-health — waiting for first sample',
     }
@@ -104,6 +117,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
       state: 'unreachable',
       dot: STATE_DOT.unreachable,
       label: 'down',
+      detail: null,
       stale,
       title: withStale(`slot-health — endpoint unreachable${detail}`, stale, age),
     }
@@ -116,6 +130,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
       state: 'unknown',
       dot: STATE_DOT.unknown,
       label: 'unknown',
+      detail: null,
       stale,
       title: withStale(`slot-health — endpoint shape not recognized${detail}`, stale, age),
     }
@@ -130,6 +145,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
       state: 'error',
       dot: STATE_DOT.error,
       label: isAuth ? 'auth' : 'slots',
+      detail: null,
       stale,
       title: withStale(`slot-health — slots: ${snapshot.slotsError}`, stale, age),
     }
@@ -143,15 +159,16 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
     // Longest-running busy slot gives the headline age.
     const maxAgeMs = Math.max(...busySlots.map(s => s.busyAgeMs ?? 0))
     const totalDecoded = slots.reduce((sum, s) => sum + (s.decoded > 0 ? s.decoded : 0), 0)
-    let label = `busy ${ageLabel(maxAgeMs)}`
-    if (totalDecoded > 0) label += ` · dec ${totalDecoded}`
-    const detail = totalDecoded > 0 ? `, ${totalDecoded} tokens decoded` : ''
+    const decodedDetail = totalDecoded > 0 ? `, ${totalDecoded} tokens decoded` : ''
     return {
       state: 'busy',
       dot: STATE_DOT.busy,
-      label,
+      // Stable: the dock chip must not widen every second as the age advances.
+      // The pane header shows `detail` instead (REVIEW §2c).
+      label: 'busy',
+      detail: `busy ${ageLabel(maxAgeMs)}${totalDecoded > 0 ? ` · dec ${totalDecoded}` : ''}`,
       stale,
-      title: withStale(`slot-health — busy for ${ageLabel(maxAgeMs)}${detail}`, stale, age),
+      title: withStale(`slot-health — busy for ${ageLabel(maxAgeMs)}${decodedDetail}`, stale, age),
     }
   }
 
@@ -160,6 +177,7 @@ export function deriveChip(live: SlotHealthLive, now: number): ChipDisplay {
     state: 'idle',
     dot: STATE_DOT.idle,
     label: 'idle',
+    detail: null,
     stale,
     title: withStale(
       `slot-health — all slots idle (${slots.length} slot${slots.length === 1 ? '' : 's'})`,

@@ -20,6 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import { SlotBody } from './SlotBody.tsx'
 import { SlotTitle } from './SlotTitle.tsx'
 import { SlotDockChip } from './SlotDockChip.tsx'
+import { SlotHealthGuideIcon } from './SlotHealthIcon.tsx'
 
 const TAB_ID = 'dsh-slot-health'
 
@@ -35,6 +36,10 @@ export function apply(ctx: Context): void {
       order: 300,
       title: () => 'Slot Health',
       description: () => 'Live health of local llama.cpp and Ollama endpoints',
+      // REVIEW §2d: without an icon the guide draws its default cube — the
+      // same placeholder GPU Monitor uses, so the capsules collided. The ECG
+      // pulse reads as "health".
+      icon: SlotHealthGuideIcon,
     }],
   }
   // Register at apply's top level (never inside an effect scope): a registry

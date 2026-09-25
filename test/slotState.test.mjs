@@ -110,17 +110,19 @@ test('slots other error: slots=null, slotsError="404" → state=error, label="sl
   assert.equal(d.label, 'slots')
 })
 
-test('busy: one slot busy → state=busy, label starts with "busy"', () => {
+test('busy: one slot busy → state=busy, label stable "busy" (REVIEW §2c)', () => {
   const d = deriveChip(
     live({ snapshot: idleSnapshot({ slots: [slot(), slot({ id: 2, state: 'busy', busyAgeMs: 1250 })] }) }),
     NOW,
   )
   assert.equal(d.state, 'busy')
-  assert.ok(d.label.startsWith('busy'), `label was: ${d.label}`)
+  // Stable label: the dock chip must not widen as the busy age advances.
+  assert.equal(d.label, 'busy')
   assert.equal(d.dot, '#3b82f6')
+  assert.match(d.detail, /^busy 1s/)
 })
 
-test('busy with decoded: label includes decoded count', () => {
+test('busy with decoded: detail carries age + decoded count', () => {
   const d = deriveChip(
     live({
       snapshot: idleSnapshot({
@@ -130,7 +132,8 @@ test('busy with decoded: label includes decoded count', () => {
     NOW,
   )
   assert.equal(d.state, 'busy')
-  assert.match(d.label, /dec 47/)
+  assert.equal(d.label, 'busy')
+  assert.equal(d.detail, 'busy 2s · dec 47')
 })
 
 test('idle: all slots idle → state=idle, label="idle"', () => {

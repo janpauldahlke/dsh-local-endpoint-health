@@ -11,10 +11,11 @@
  * and speculative-decode diagnostics. There is no per-GPU throughput here.
  *
  * AC12 (acceptance labeled lifetime vs delta): the draft acceptance / mean
- * length rows carry an explicit scope label — `life` (cumulative since server
- * start) vs `last` (the delta across the most recent completed request's
- * id_task boundary) — and each figure shows its denominator: `0.87 (n=30)`.
- * A bare ratio without n is untrustworthy (NOTES §Cause A FROZEN).
+ * length rows carry an explicit scope label — `lifetime` (cumulative since
+ * server start) vs `last req` (the delta across the most recent completed
+ * request's id_task boundary) — and each figure shows its denominator:
+ * `0.87 (n=30)`. A bare ratio without n is untrustworthy (NOTES §Cause A
+ * FROZEN).
  *
  * A not-fresh section (transient fetch failure while capability is `yes`)
  * keeps its last values but is dimmed, with the error shown.
@@ -24,20 +25,22 @@
  * `perPosLastRequest: null` and bare-number draft figures; the coercers
  * degrade those to "fewer rows" instead of throwing (the old code crashed
  * the whole pane on `null.length`).
+ *
+ * REVIEW §2 (visual language): rows come from ./row.tsx — same three-column
+ * rhythm and color-mix ink as the slot rows.
  */
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties } from 'react'
 import type { MetricsSection } from '../shared/types.ts'
 import { ageLabel } from './slotState.ts'
+import { HAIRLINE, Row, muted } from './row.tsx'
 import { fmtFigure, fmtPerPos, metricsHasRows, toFigure, toPerPos } from './metricsFmt.ts'
-
-const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
 const block: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 2,
   paddingTop: 6,
-  borderTop: '1px solid rgba(139,147,167,0.2)',
+  borderTop: HAIRLINE,
 }
 
 const sectionHeader: CSSProperties = {
@@ -45,21 +48,6 @@ const sectionHeader: CSSProperties = {
   alignItems: 'baseline',
   gap: 8,
   marginBottom: 2,
-}
-
-const muted: CSSProperties = { color: '#8b93a7', margin: 0 }
-
-const rowLabel: CSSProperties = { color: '#8b93a7', width: 96, flexShrink: 0 }
-
-const rowValue: CSSProperties = { fontFamily: MONO, color: '#c3c9d6' }
-
-function Row({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      <span style={rowLabel}>{label}</span>
-      <span style={rowValue}>{value}</span>
-    </div>
-  )
 }
 
 export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
@@ -84,21 +72,77 @@ export function MetricsBlock({ metrics }: { metrics: MetricsSection }) {
         {windowLabel !== null && <span style={muted}>{windowLabel}</span>}
       </div>
       {metrics.promptTokensPerSec !== null && (
-        <Row label="prompt /s" value={metrics.promptTokensPerSec} />
+        <Row
+          label="prompt /s"
+          value={`${metrics.promptTokensPerSec} tok/s`}
+          tooltip="Prompt-encoding rate: prompt-token counter delta across the shown sample window, from the server's own /metrics (llamacpp:prompt_tokens_total). Not a GPU figure."
+        />
       )}
-      {metrics.tokensPerSec !== null && <Row label="decode /s" value={metrics.tokensPerSec} />}
-      {metrics.requestsDeferred !== null && <Row label="deferred" value={metrics.requestsDeferred} />}
-      {metrics.requestsProcessing !== null && <Row label="active" value={metrics.requestsProcessing} />}
+      {metrics.tokensPerSec !== null && (
+        <Row
+          label="decode /s"
+          value={`${metrics.tokensPerSec} tok/s`}
+          tooltip="Decoding rate: predicted-token counter delta across the shown sample window, from the server's own /metrics (llamacpp:tokens_predicted_total)."
+        />
+      )}
+      {metrics.requestsDeferred !== null && (
+        <Row
+          label="deferred"
+          value={String(metrics.requestsDeferred)}
+          tooltip="Server gauge: requests deferred (queued) right now, from /metrics (llamacpp:requests_deferred)."
+        />
+      )}
+      {metrics.requestsProcessing !== null && (
+        <Row
+          label="active"
+          value={String(metrics.requestsProcessing)}
+          tooltip="Server gauge: requests being processed right now, from /metrics (llamacpp:requests_processing)."
+        />
+      )}
       {metrics.contextHighWater !== null && (
-        <Row label="ctx peak" value={metrics.contextHighWater.toLocaleString('en-US')} />
+        <Row
+          label="ctx peak"
+          value={metrics.contextHighWater.toLocaleString('en-US')}
+          tooltip="Context high-water: largest token count any slot's context has reached since server start, from /metrics (llamacpp:context_peeked_total-style gauge). Resets on server restart."
+        />
       )}
       {specRows && (
         <>
-          {accLife !== null && <Row label="acc · lifetime" value={accLife} />}
-          {accLast !== null && <Row label="acc · last req" value={accLast} />}
-          {lenLife !== null && <Row label="len · lifetime" value={lenLife} />}
-          {lenLast !== null && <Row label="len · last req" value={lenLast} />}
-          {perPos.length > 0 && <Row label="per-pos · last" value={fmtPerPos(perPos)} />}
+          {accLife !== null && (
+            <Row
+              label="acc · lifetime"
+              value={accLife}
+              tooltip="Draft acceptance, cumulative since server start: accepted draft tokens / draft tokens, from /metrics spec_decode counters. (n=) is the draft-token denominator."
+            />
+          )}
+          {accLast !== null && (
+            <Row
+              label="acc · last req"
+              value={accLast}
+              tooltip="Draft acceptance across the most recent completed request only (id_task boundary delta). (n=) is the draft-token denominator for that request."
+            />
+          )}
+          {lenLife !== null && (
+            <Row
+              label="len · lifetime"
+              value={lenLife}
+              tooltip="Mean accepted draft length, cumulative since server start: accepted tokens / draft attempts. (n=) is the draft-attempt denominator."
+            />
+          )}
+          {lenLast !== null && (
+            <Row
+              label="len · last req"
+              value={lenLast}
+              tooltip="Mean accepted draft length across the most recent completed request only. (n=) is the draft-attempt denominator for that request."
+            />
+          )}
+          {perPos.length > 0 && (
+            <Row
+              label="per-pos · last"
+              value={fmtPerPos(perPos)}
+              tooltip="Per-position draft acceptance of the last completed request (MTP diagnostic): position → tokens accepted at that position."
+            />
+          )}
         </>
       )}
       {!metrics.fresh && metrics.error !== null && (

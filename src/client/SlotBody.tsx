@@ -9,7 +9,9 @@
  * Header state → color/label comes from `slotState.deriveChip()` — the same
  * pure derivation the dock chip uses, so the two surfaces cannot disagree
  * (the header previously rendered the raw endpoint-level `snapshot.state`,
- * which showed green "idle" while a slot was busy).
+ * which showed green "idle" while a slot was busy). The header shows the
+ * rich `detail` label (`busy 22s · dec 892`); the dock chip shows the stable
+ * short `label` so the dock row never shifts (REVIEW §2c).
  *
  * Two distinct failure layers:
  *   transport error — the plugin route itself failed → "no data — <error>"
@@ -21,19 +23,25 @@
  * TTFT come from host-side latches (`busyAgeMs`, `ttftMs`) — the `/slots`
  * payload has no timestamps, so these are null until the host has seen the
  * state across at least one transition (or the first decode).
+ *
+ * P7: `MetricsBlock` (server-wide /metrics rows) renders below the slot
+ * blocks; null section ⇒ hidden, no layout hole.
+ *
+ * REVIEW §2: rows use the GPU-monitor three-column layout (./row.tsx) with
+ * color-mix ink — no hardcoded greys, no meter sliding under variable
+ * number widths.
  */
 import { useEffect } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
 import type { SlotSample } from '../shared/types.ts'
 import { setPaneOpen } from './paneState.ts'
-import { deriveChip } from './slotState.ts'
+import { deriveChip, STATE_DOT } from './slotState.ts'
+import { HAIRLINE, MONO, Row, muted } from './row.tsx'
 import { MetricsBlock } from './MetricsBlock.tsx'
 
 /** A sample older than this many ms is rendered dimmed (stale). */
 const STALE_MS = 3000
-
-const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
 const container: CSSProperties = {
   display: 'flex',
@@ -42,20 +50,7 @@ const container: CSSProperties = {
   padding: 12,
   fontSize: 13,
   lineHeight: 1.5,
-}
-
-const muted: CSSProperties = { color: '#8b93a7', margin: 0 }
-
-const rowLabel: CSSProperties = { color: '#8b93a7', width: 64, flexShrink: 0 }
-
-const rowValue: CSSProperties = { fontFamily: MONO, color: '#c3c9d6' }
-
-const slotHeader: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  paddingTop: 6,
-  borderTop: '1px solid rgba(139,147,167,0.2)',
+  color: 'inherit',
 }
 
 function originLabel(origin: string): string {
@@ -64,29 +59,6 @@ function originLabel(origin: string): string {
   } catch {
     return origin
   }
-}
-
-/**
- * Thin inline meter bar for a 0..1 ratio. */
-function Meter({ ratio, color = '#60a5fa' }: { ratio: number | null; color?: string }) {
-  if (ratio === null) return null
-  const pct = Math.max(0, Math.min(1, ratio)) * 100
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: 'inline-block',
-        width: 72,
-        height: 6,
-        borderRadius: 3,
-        overflow: 'hidden',
-        background: 'rgba(139,147,167,0.25)',
-        verticalAlign: 'middle',
-      }}
-    >
-      <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: color }} />
-    </span>
-  )
 }
 
 /** ms → "185 ms" / "12.4 s" / "1 m 32 s"; null → "—". */
@@ -104,50 +76,46 @@ function fmtInt(n: number): string {
   return n.toLocaleString('en-US')
 }
 
-/** One label/value row in a slot block. */
-function Row({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      <span style={rowLabel}>{label}</span>
-      <span style={rowValue}>{value}</span>
-    </div>
-  )
-}
-
 /** One slot's metric rows (P2). */
 function SlotBlock({ slot }: { slot: SlotSample }) {
   const busy = slot.state === 'busy'
-  const progressPct =
-    slot.promptProgress !== null ? ` (${Math.round(slot.promptProgress * 100)}%)` : ''
-  const pressurePct =
-    slot.contextPressure !== null ? ` (${Math.round(slot.contextPressure * 100)}%)` : ''
+  const promptPct = slot.promptProgress !== null ? Math.round(slot.promptProgress * 100) : null
+  const ctxPct = slot.contextPressure !== null ? Math.round(slot.contextPressure * 100) : null
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <div style={slotHeader}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 6, borderTop: HAIRLINE }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <b>slot {slot.id}</b>
-        <span style={{ fontWeight: 600, color: busy ? '#f59e0b' : '#22c55e' }}>{busy ? 'busy' : 'idle'}</span>
+        <span style={{ fontWeight: 600, color: busy ? STATE_DOT.busy : STATE_DOT.idle, fontVariantNumeric: 'tabular-nums' }}>
+          {busy ? 'busy' : 'idle'}
+        </span>
         {busy && slot.idTask !== null && <span style={muted}>{slot.idTask}</span>}
       </div>
       <Row
         label="prompt"
-        value={
-          <>
-            {fmtInt(slot.promptTokensProcessed)} / {fmtInt(slot.promptTokens)}
-            {progressPct} <Meter ratio={slot.promptProgress} color="#f59e0b" />
-          </>
-        }
+        value={`${fmtInt(slot.promptTokensProcessed)} / ${fmtInt(slot.promptTokens)}${promptPct !== null ? ` (${promptPct}%)` : ''}`}
+        meter={slot.promptProgress}
+        tooltip="Prompt tokens processed vs total for this request, from /slots (prompt_tokens / prompt_tokens_total). The bar is the processed share."
       />
-      <Row label="decoded" value={fmtInt(slot.decoded)} />
-      <Row label="busy" value={fmtMs(slot.busyAgeMs)} />
-      <Row label="ttft" value={fmtMs(slot.ttftMs)} />
+      <Row
+        label="decoded"
+        value={fmtInt(slot.decoded)}
+        tooltip="Decoded (generated) tokens so far in this request, from /slots."
+      />
+      <Row
+        label="busy"
+        value={fmtMs(slot.busyAgeMs)}
+        tooltip="How long this slot has been busy, latched host-side at the idle→busy transition. Null until the host has observed the transition."
+      />
+      <Row
+        label="ttft"
+        value={fmtMs(slot.ttftMs)}
+        tooltip="Time to first token: host-latched elapsed time from the busy transition to the first decoded token. Null until the first decode is observed."
+      />
       <Row
         label="context"
-        value={
-          <>
-            {fmtInt(slot.contextUsed)} / {fmtInt(slot.contextSize)}
-            {pressurePct} <Meter ratio={slot.contextPressure} />
-          </>
-        }
+        value={`${fmtInt(slot.contextUsed)} / ${fmtInt(slot.contextSize)}${ctxPct !== null ? ` (${ctxPct}%)` : ''}`}
+        meter={slot.contextPressure}
+        tooltip="Context used vs the slot's configured n_ctx, from /slots. The bar is the pressure share."
       />
     </div>
   )
@@ -173,7 +141,7 @@ export function SlotBody() {
     return (
       <div style={container}>
         {snapshot !== null && (
-          <span style={{ fontFamily: MONO, fontSize: 12, color: '#c3c9d6' }}>
+          <span style={{ fontFamily: MONO, fontSize: 12 }}>
             {originLabel(snapshot.origin)}
           </span>
         )}
@@ -192,6 +160,7 @@ export function SlotBody() {
   }
 
   const chip = deriveChip({ snapshot, error, lastAttempt }, now)
+  const latency = snapshot.latencyMs === null ? '—' : snapshot.latencyMs < 1 ? '<1 ms' : `${snapshot.latencyMs} ms`
 
   return (
     <div style={{ ...container, opacity: stale ? 0.55 : 1 }}>
@@ -201,16 +170,16 @@ export function SlotBody() {
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: chip.dot }}
         >
           <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: chip.dot, flexShrink: 0 }} />
-          {chip.label}
+          {chip.detail ?? chip.label}
         </span>
-        <span style={{ fontFamily: MONO, fontSize: 12, color: '#c3c9d6' }}>
+        <span style={{ fontFamily: MONO, fontSize: 12, color: 'color-mix(in srgb, currentColor 70%, transparent)' }}>
           {originLabel(snapshot.origin)}
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 16, fontVariantNumeric: 'tabular-nums' }}>
         <span>
           latency{' '}
-          <b style={{ fontWeight: 600 }}>{snapshot.latencyMs === null ? '—' : `${snapshot.latencyMs} ms`}</b>
+          <b style={{ fontWeight: 600 }}>{latency}</b>
         </span>
         <span>
           updated{' '}
