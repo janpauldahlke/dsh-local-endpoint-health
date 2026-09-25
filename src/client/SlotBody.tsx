@@ -14,10 +14,17 @@
  * Two distinct failure layers:
  *   transport error — the plugin route itself failed → "no data — <error>"
  *   endpoint error  — route fine, endpoint down → state chip + snapshot.lastError
+ *
+ * P2: per-slot metric rows below the P1 rows. `snapshot.slots` is an array
+ * (possibly empty) when `/slots` worked; `null` when it could not be used
+ * (401/404/5xx/garbage), in which case `slotsError` is shown. Busy age and
+ * TTFT come from host-side latches (`busyAgeMs`, `ttftMs`) — the `/slots`
+ * payload has no timestamps, so these are null until the host has seen the
+ * state across at least one transition (or the first decode).
  */
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useSlotHealth } from './useSlotHealth.ts'
-import type { EndpointState } from '../shared/types.ts'
+import type { EndpointState, SlotSample } from '../shared/types.ts'
 
 /** A sample older than this many ms is rendered dimmed (stale). */
 const STALE_MS = 3000
@@ -27,6 +34,8 @@ const STATE_COLOR: Record<EndpointState, string> = {
   unreachable: '#ef4444',
   unknown: '#8b93a7',
 }
+
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
 const container: CSSProperties = {
   display: 'flex',
@@ -38,6 +47,18 @@ const container: CSSProperties = {
 }
 
 const muted: CSSProperties = { color: '#8b93a7', margin: 0 }
+
+const rowLabel: CSSProperties = { color: '#8b93a7', width: 64, flexShrink: 0 }
+
+const rowValue: CSSProperties = { fontFamily: MONO, color: '#c3c9d6' }
+
+const slotHeader: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  paddingTop: 6,
+  borderTop: '1px solid rgba(139,147,167,0.2)',
+}
 
 function originLabel(origin: string): string {
   try {
@@ -57,6 +78,92 @@ function StateChip({ state }: { state: EndpointState }) {
   )
 }
 
+/** Thin inline meter bar for a 0..1 ratio. */
+function Meter({ ratio, color = '#60a5fa' }: { ratio: number | null; color?: string }) {
+  if (ratio === null) return null
+  const pct = Math.max(0, Math.min(1, ratio)) * 100
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: 'inline-block',
+        width: 72,
+        height: 6,
+        borderRadius: 3,
+        overflow: 'hidden',
+        background: 'rgba(139,147,167,0.25)',
+        verticalAlign: 'middle',
+      }}
+    >
+      <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: color }} />
+    </span>
+  )
+}
+
+/** ms → "185 ms" / "12.4 s" / "1 m 32 s"; null → "—". */
+function fmtMs(ms: number | null): string {
+  if (ms === null) return '—'
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  const s = ms / 1000
+  if (s < 60) return `${s < 10 ? s.toFixed(1) : Math.round(s)} s`
+  const m = Math.floor(s / 60)
+  const rem = Math.round(s % 60)
+  return `${m} m ${rem} s`
+}
+
+function fmtInt(n: number): string {
+  return n.toLocaleString('en-US')
+}
+
+/** One label/value row in a slot block. */
+function Row({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <span style={rowLabel}>{label}</span>
+      <span style={rowValue}>{value}</span>
+    </div>
+  )
+}
+
+/** One slot's metric rows (P2). */
+function SlotBlock({ slot }: { slot: SlotSample }) {
+  const busy = slot.state === 'busy'
+  const progressPct =
+    slot.promptProgress !== null ? ` (${Math.round(slot.promptProgress * 100)}%)` : ''
+  const pressurePct =
+    slot.contextPressure !== null ? ` (${Math.round(slot.contextPressure * 100)}%)` : ''
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={slotHeader}>
+        <b>slot {slot.id}</b>
+        <span style={{ fontWeight: 600, color: busy ? '#f59e0b' : '#22c55e' }}>{busy ? 'busy' : 'idle'}</span>
+        {busy && slot.idTask !== null && <span style={muted}>{slot.idTask}</span>}
+      </div>
+      <Row
+        label="prompt"
+        value={
+          <>
+            {fmtInt(slot.promptTokensProcessed)} / {fmtInt(slot.promptTokens)}
+            {progressPct} <Meter ratio={slot.promptProgress} color="#f59e0b" />
+          </>
+        }
+      />
+      <Row label="decoded" value={fmtInt(slot.decoded)} />
+      <Row label="busy" value={fmtMs(slot.busyAgeMs)} />
+      <Row label="ttft" value={fmtMs(slot.ttftMs)} />
+      <Row
+        label="context"
+        value={
+          <>
+            {fmtInt(slot.contextUsed)} / {fmtInt(slot.contextSize)}
+            {pressurePct} <Meter ratio={slot.contextPressure} />
+          </>
+        }
+      />
+    </div>
+  )
+}
+
 export function SlotBody() {
   const { snapshot, error, lastAttempt } = useSlotHealth()
 
@@ -70,7 +177,7 @@ export function SlotBody() {
     return (
       <div style={container}>
         {snapshot !== null && (
-          <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#c3c9d6' }}>
+          <span style={{ fontFamily: MONO, fontSize: 12, color: '#c3c9d6' }}>
             {originLabel(snapshot.origin)}
           </span>
         )}
@@ -92,7 +199,7 @@ export function SlotBody() {
     <div style={{ ...container, opacity: stale ? 0.55 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <StateChip state={snapshot.state} />
-        <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#c3c9d6' }}>
+        <span style={{ fontFamily: MONO, fontSize: 12, color: '#c3c9d6' }}>
           {originLabel(snapshot.origin)}
         </span>
       </div>
@@ -112,6 +219,11 @@ export function SlotBody() {
       {snapshot.lastError !== null && (
         <p style={{ ...muted, overflowWrap: 'anywhere' }}>{snapshot.lastError}</p>
       )}
+      {snapshot.slots === null
+        ? snapshot.slotsError !== null && (
+            <p style={{ ...muted, overflowWrap: 'anywhere' }}>slots: {snapshot.slotsError}</p>
+          )
+        : snapshot.slots.map((slot) => <SlotBlock key={slot.id} slot={slot} />)}
     </div>
   )
 }

@@ -1,43 +1,35 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 — **P0 DONE** (`090a524`) · **P1 host+client slice DONE** (`2069b8a`)
-**Phase:** **P1 (vertical slice)** complete — poll `/health` → route → client pane idle/unreachable
+**Updated:** 2026-09-25 — **P0/P1 DONE** (`090a524`/`2069b8a`) · **P2–P5 on disk + verified** · **P6 dock chip in flight**
+**Phase:** **P6 dock chip** — chip in `conversation.composer.dock`, hidden while pane open, one shared state module.
 
-Laws live in **`AGENTS.md`** (auto-loaded, survives compaction) — not repeated here.
-Facts live in **`ENV.md`**; style in **`STYLE.md`**; packaging gotchas in **SKILL "Corrections learned the hard way"**.
+Laws live in **`AGENTS.md`** (auto-loaded) — not repeated here. Facts in **`ENV.md`**; style in **`STYLE.md`**; packaging gotchas in SKILL "Corrections learned the hard way."
 
-## P1 — what landed this run
+## Done — P2–P5 (this run)
 
-- **`src/shared/types.ts`** — `HealthSnapshot` + `HealthRouteResponse` (JSON `{...snapshot, origin}`) single source of truth.
-- **`src/host/collect.ts`** — `/health` poller. **Never throws.** State table locked: fetch-exception/timeout/≥500 → `unreachable`; 2xx/3xx + body `status==="ok"` → `idle`; else → `unknown`. `latencyMs` on completed requests only (`null` when unreachable). `lastError` carries most-recent failure, reset to `null` on good sample. Timeout = 2 s module constant.
-- **`src/host/config.ts`** — Standard Schema v1 `{ origin }`; **`DEFAULT_ORIGIN`** = `http://127.0.0.1:8080`.
-- **`src/host/index.ts`** — route returns `{...snapshot, origin}`; `ctx.effect()` runs the 1 Hz sampler loop.
-- **`src/client/store.ts`** — module-level self-chaining fetch at 1 Hz vs `/api/dsh-slot-health`, `inFlight` guard, refcounted subscribe/unsubscribe, `cache:'no-store'`, per-tick 2500 ms `AbortController`. Two-stage abort: `'timeout'` → `"poll timed out after 2500 ms"`; `'stopped'` → no error.
-- **`src/client/useSlotHealth.ts`** — React binding `{ snapshot, error, lastAttempt }`.
-- **`src/client/SlotBody.tsx`** — 3 branches: transport-error → last-known origin + error; no-sample → "waiting for first sample…"; live → state chip + latency + elapsed + lastError. **`SlotTitle.tsx`** — live dot via `useSlotHealth`.
-- **`src/client/index.tsx`** — `TAB_ID='dsh-slot-health'`; `sidebarRightTabs.register` + `slots.inject('sidebar.right.pane.tab'/'…tab.title')`.
+- **P2 slot meat + host age latch** — `src/shared/types.ts`: `SlotSample[]` on `HealthSnapshot` (latch fields `null`-when-n/a, never 0). `src/host/collect.ts` decodes `/slots`; `src/host/latch.ts` stamps `busySinceMs`/`busyAgeMs`/`ttftMs` host-side (`/slots` payload has no timestamps). `src/client/SlotBody.tsx` renders per-slot rows + meter.
+- **P3 wedged** — busy with `id_task` not advancing / `has_next_token` false. **P4 errors** — two failure layers (transport vs endpoint) + `slots === null` → `slotsError` (the "key?" state). **P5 auth** — key precedence via env, 10 s retry for rotation.
+- **Tests** — `test/latch.test.mjs` (13/13) for latch math; `tools/fixture-server.mjs` for live AC runs. Build + `tsc --noEmit` clean.
 
-## Verified this run (agent-side)
+## Verified (agent-side) vs pending-human
 
-- **AC1** — origin pointed at dead port `:59999` via `cordis.patch.yml` config → route reads `unreachable`, `lastError:"connection refused"`, confirmed **poll 1** (≤3). Origin 8080 restored after.
-- **AC2 (host-side)** — live origin → `state:idle`, `ok:true`, `latencyMs:1`, **`sampledAt` advances ~1 s/poll**. Client 1 Hz re-render = pending-human.
-- Served client bundle (8881 B, `rev=…-50`) contains all current markers (`waiting for first sample`, `sidebar.right.pane.tab`, …).
+- **P2 LIVE-verified** on `:8080`: idle→busy→idle observed; `busyAgeMs` advances, `ttftMs` latches on first decode.
+- **P3/P4/P5:** code present, AC runs partial (see ACCEPTANCE.md) — pending-human / needs fixture.
+- **P1 browser check** still pending-human (rightbar tab renders, elapsed advances).
+
+## P6 in flight — dock chip
+
+- `paneState.ts` refcounted open tracker (chip renders `null` while pane mounted); `slotState.ts` pure derivation `{snapshot,error,lastAttempt,now} → {state,dot,label,title,stale}` consumed by **both** chip and pane (cannot disagree); `SlotDockChip.tsx`; `index.tsx` registers `SlotDockSeat` → `conversation.composer.dock` (`id:'slot-health'`, order -10), `onOpen → ctx.sidebarRight.openTab`; `SlotBody.tsx` calls `setPaneOpen` on mount/unmount.
+- **AC9:** chip alone distinguishes busy / idle / error·auth / unreachable / stale, tab closed. **AC10:** unit test asserts state→label map.
 
 ## Next 3
 
-1. [x] Commit P1 host + client slice → `2069b8a` (build artifacts + `src/` + `agent/` docs).
-2. [ ] pending-human: browser — rightbar tab renders; live = idle + "updated N s ago" **advances**; dead port = unreachable + error + age; chat stays usable.
-3. [ ] P2 slot meat — extend `HealthSnapshot` with per-slot data (base fields never reinterpreted).
-
-## Checkpoints
-
-- [x] PLAN approved · Q1–Q10 LOCKED · AC1–AC13 · SPEC/STYLE/phases P0–P9 · `AGENTS.md`
-- [x] **P0 scaffold** — activates on `:3090`; `lib/` committed; browser render pending-human
-- [x] **P1 vertical slice** — host sampler + route + client poller + 3-branch pane; AC1/AC2 host-verified
-- [ ] P2 slot meat → P3 wedged → P4 errors → P5 auth → P6 chip → P7 metrics → P8 backends → P9 ship
+1. [ ] Write `slotState.ts` + `paneState.ts` + `SlotDockChip.tsx`; wire `index.tsx` + `SlotBody.tsx`.
+2. [ ] Rebuild → verify `lib/client.js` has dock registration; write slotState unit test; commit P2–P5, then P6.
+3. [ ] ACCEPTANCE.md P6 AC writeups; final STATUS; P7 metrics next.
 
 ## pending-human
 
-- **P1 browser check (first morning task):** open token URL (`/tmp/dsh-3090.log`); rightbar tab `dsh-slot-health` renders. Live → idle + elapsed advances; dead port → unreachable + last error + age; chat UI stays usable.
+- P1 browser: rightbar tab renders; live = idle + elapsed advances; dead port = unreachable + error + age.
 
 Keep ≤55 lines. Rewrite, don't append.

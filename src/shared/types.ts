@@ -3,22 +3,71 @@
  * the plugin route for the latest one. Both halves import from here, so the
  * JSON shape is defined exactly once.
  *
- * P1 has three states only (see `agent/phases/P1-vertical-slice.md`):
+ * Top-level endpoint state (from `{origin}/health`), stable since P1:
  *   unreachable — GET {origin}/health fails (refused / timeout / 5xx)
  *   idle        — /health → 200 with the recognizable llama-server shape
  *   unknown     — reachable, but not a recognizable server shape
+ *
+ * P2 adds per-slot state on top (see `SlotSample.state`), derived from
+ * `is_processing` — never from token counts, because `n_prompt_tokens` reads
+ * ~8369 while idle (retained context, not live work).
  */
 
-/** Three P1 endpoint states. P2/P3 add slot-level states on top, not new top-level ones. */
+/** P1 endpoint states. P2/P3 add slot-level states on top, not new top-level ones. */
 export type EndpointState = 'unreachable' | 'idle' | 'unknown'
+
+/** Per-slot state, derived from `is_processing` only. */
+export type SlotState = 'busy' | 'idle'
+
+/**
+ * One sample of a single llama-server slot (from `{origin}/slots`).
+ *
+ * All `*Ms` latch fields (`busySinceMs`, `busyAgeMs`, `ttftMs`) are computed
+ * host-side (`host/latch.ts`), because the `/slots` payload contains no
+ * timestamps. The collector emits them as `null`; the host sampler stamps the
+ * real values on every tick. `null` means "not applicable right now", not 0.
+ */
+export interface SlotSample {
+  /** The slot's `id` (llama-server slot index). */
+  id: number
+  /** Derived: `busy` iff `is_processing` is true, `idle` otherwise. */
+  state: SlotState
+  /** Raw `id_task`; changes per request. Exposed for debugging/latch evidence. */
+  idTask: string | null
+  /** `n_prompt_tokens` — total prompt tokens in the slot's context (retained while idle!). */
+  promptTokens: number
+  /** `n_prompt_tokens_processed` — how much of the prompt has been processed. */
+  promptTokensProcessed: number
+  /** `promptTokensProcessed / promptTokens` (0..1); null when there is no prompt to progress through. */
+  promptProgress: number | null
+  /** `n_prompt_tokens_cache` — prompt tokens served from cache (interesting during multi-turn prefill). */
+  promptTokensCache: number
+  /** `next_token[0].n_decoded` — decode tokens produced for this request. */
+  decoded: number
+  /** `next_token[0].n_remain` — estimated tokens left in this request (server estimate; -1/0 = unknown). */
+  remain: number
+  /** `next_token[0].has_next_token` — more tokens expected for the current request. */
+  hasNextToken: boolean
+  /** `n_ctx` — the slot's context window size. */
+  contextSize: number
+  /** Context in use ≈ `promptTokens + decoded` (llama-server reports no separate counter). */
+  contextUsed: number
+  /** `contextUsed / contextSize` (0..1); null when `contextSize` is not positive. */
+  contextPressure: number | null
+  /** Host-side latch: epoch ms when the current busy spell started; null while idle. */
+  busySinceMs: number | null
+  /** Host-side latch: `sampledAt - busySinceMs`; null while idle. */
+  busyAgeMs: number | null
+  /** Host-side latch: elapsed ms from busy start until the first `n_decoded > 0`; null until the first decode (cleared when idle). */
+  ttftMs: number | null
+  /** Raw `speculative` flag from the slot (drives the spec row in later phases). */
+  speculative: boolean
+}
 
 /**
  * One sample of the local endpoint's health. Produced by `host/collect.ts`,
- * served by the plugin route (wrapped in `HealthRouteResponse`), consumed by
- * the client poller.
- *
- * P2 will extend this with per-slot data (e.g. an optional `slots` array);
- * the base fields below are stable and never reinterpreted.
+ * stamped with latch values by `host/latch.ts`, served by the plugin route
+ * (wrapped in `HealthRouteResponse`), consumed by the client poller.
  */
 export interface HealthSnapshot {
   /** True when the HTTP request to {origin}/health completed with a 2xx/3xx status. */
@@ -31,6 +80,15 @@ export interface HealthSnapshot {
   lastError: string | null
   /** Wall-clock of the sample (epoch ms). Client renders "updated N s ago" from this. */
   sampledAt: number
+  /**
+   * Per-slot samples (P2). `null` — not an empty array — when `/slots` could
+   * not be used: 401 (auth refused), 404 (endpoint does not expose slots),
+   * 5xx, fetch failure, or an unrecognized payload. `slotsError` names which.
+   * An empty array means the server answered with a genuine zero-slot list.
+   */
+  slots: SlotSample[] | null
+  /** Non-sensitive reason when `slots` is null; never contains key material. */
+  slotsError: string | null
 }
 
 /**

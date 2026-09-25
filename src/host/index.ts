@@ -6,6 +6,11 @@
  * cached snapshot. Boot-safe by design: collector failures become runtime
  * states served by the route, never a boot-time throw.
  *
+ * P2: the sampler also probes `/slots` (behind an optional Bearer token from
+ * `LLAMA_API_KEY`) and stamps every slot sample with busy-age / TTFT values
+ * latched in host memory (`./latch.ts`), so busy age survives client
+ * reconnects — the latches belong to the sampler, not to any client.
+ *
  * The `Config` named export is resolved by cordis before `apply` runs — see
  * `./config.ts`.
  */
@@ -16,6 +21,8 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { collectHealth } from './collect.ts'
 import { Config } from './config.ts'
 import type { ResolvedConfig } from './config.ts'
+import { stampSlotLatches } from './latch.ts'
+import type { SlotLatch } from './latch.ts'
 import { ROUTE } from './route.ts'
 import type { HealthSnapshot } from '../shared/types.ts'
 
@@ -35,20 +42,47 @@ let latest: HealthSnapshot = {
   latencyMs: null,
   lastError: 'sampling…',
   sampledAt: Date.now(),
+  slots: null,
+  slotsError: null,
 }
+
+/**
+ * Per-slot busy-age / TTFT latches (P2). Host memory only: they survive
+ * client reconnects and are pruned by `stampSlotLatches` when a slot
+ * disappears from `/slots`.
+ */
+const latches = new Map<number, SlotLatch>()
+
+/** Bearer token for the privileged `/slots` probe; resolved once at apply time. */
+let apiKey: string | undefined = undefined
 
 /** True while a sample is in flight, so overlapping ticks are skipped. */
 let sampling = false
 
-/** One sampling pass: never throws, never overlaps. */
+/** One sampling pass: probe, stamp latches, store. Never throws. */
 async function tick(origin: string): Promise<void> {
   if (sampling) return
   sampling = true
   try {
-    latest = await collectHealth(origin)
+    const snap = await collectHealth(origin, { apiKey })
+    if (snap.slots !== null) {
+      const stamped = stampSlotLatches(snap.slots, latches, Date.now())
+      snap.slots = stamped.slots
+      latches.clear()
+      for (const [id, latch] of stamped.latches) latches.set(id, latch)
+    }
+    latest = snap
   } catch (err) {
     // collectHealth is catch-all; this guards the sampler loop itself.
-    latest = { ok: false, state: 'unreachable', latencyMs: null, lastError: String(err), sampledAt: Date.now() }
+    latest = {
+      ok: false,
+      state: 'unreachable',
+      latencyMs: null,
+      lastError: String(err),
+      sampledAt: Date.now(),
+      slots: null,
+      slotsError: null,
+    }
   } finally {
     sampling = false
   }
@@ -56,6 +90,12 @@ async function tick(origin: string): Promise<void> {
 
 export function apply(ctx: Context, config: ResolvedConfig): void {
   const origin = config.origin
+
+  // Resolve the optional Bearer token once; env is stable for the host
+  // process lifetime. Never logged, never served — only used as a request
+  // header by the collector.
+  const envKey = typeof process !== 'undefined' && process.env ? process.env.LLAMA_API_KEY : undefined
+  apiKey = typeof envKey === 'string' && envKey !== '' ? envKey : undefined
 
   // Start sampling immediately so the route serves live data as soon as possible.
   void tick(origin)
@@ -70,9 +110,12 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         return
       }
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
-      // Route-level field (not part of HealthSnapshot): lets the pane label
-      // which endpoint the host is sampling.
-      res.end(JSON.stringify({ ...latest, origin }))
+      // Serve a copy (shallow, plus a copied slots array): the client must
+      // never alias the live object, and latch stamping swaps slot objects
+      // wholesale each tick. Route-level `origin` field (not part of
+      // HealthSnapshot): lets the pane label which endpoint is sampled.
+      const snap = latest
+      res.end(JSON.stringify({ ...snap, slots: snap.slots ? [...snap.slots] : null, origin }))
     },
   })
 

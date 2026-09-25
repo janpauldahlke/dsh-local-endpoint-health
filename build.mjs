@@ -52,6 +52,20 @@ await build({
   logLevel: 'warning',
 })
 
+// ---- latch (testable pure module) ------------------------------------------
+// Rebuilt as a standalone entry so unit tests can import the busy-age/TTFT
+// state machine without pulling in the host bundle's cordis externals.
+await build({
+  entryPoints: [join(root, 'src/host/latch.ts')],
+  outfile: join(root, 'lib/latch.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2024',
+  sourcemap: true,
+  logLevel: 'warning',
+})
+
 // ---- client half ----------------------------------------------------------
 await build({
   entryPoints: [join(root, 'src/client/index.tsx')],
