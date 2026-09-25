@@ -1,8 +1,7 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 ~13:00 — **REVIEW §1 (hardening) + §2 (UI pass) committed and verified
-on `:3090`.** `:3080` was restarted by the human (pane works there too — stale-host crash gone
-on both, doubly: new client hardens AND new host serves the P7 shape).
+**Updated:** 2026-09-25 ~11:10 — REVIEW §1+§2 done on `:3090`/`:3080`. Next visual pass:
+**`agent/REVIEW2.md`** (GpuCard-style collapsible cards + preview).
 
 Laws in **`AGENTS.md`** (auto-loaded); facts in **`ENV.md`**; style in `STYLE.md`; packaging
 gotchas in SKILL "Corrections learned the hard way."
@@ -37,10 +36,10 @@ gotchas in SKILL "Corrections learned the hard way."
 
 ## Next 3
 
-1. [ ] Human visual pass on `:3080` + `:3090` (REVIEW §2 acceptance: 3-col rows, no meter slide,
-   stable chip width, ECG icon in guide, theme-safe ink) — steps in `agent/ACCEPTANCE.md`.
-2. [ ] Re-derive P3 `wedged` thresholds for IQ4_XS + 128k context.
-3. [ ] Optional: per-pos rows only appear once a spec request completes on a live host.
+1. [ ] **REVIEW2** — card chrome + collapsible **slot ▸** / **server metrics ▸** with collapsed
+   preview (match `GpuCard`). Spec in `agent/REVIEW2.md`. Verify on `:3090`.
+2. [ ] Human visual pass on REVIEW §2 leftovers + REVIEW2 cards (`ACCEPTANCE.md`).
+3. [ ] Re-derive P3 `wedged` thresholds for IQ4_XS + 128k.
 
 ## pending-human
 
