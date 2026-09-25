@@ -58,3 +58,23 @@ Consequence: browser-side AC2 (1 Hz re-render / "updated N s ago" advancing) and
 ## Auth token extraction  (verified 2026-09-25)
 Evidence: the `:3090` boot token contains `-` characters; grep `[A-Za-z0-9_]*` truncates at the first dash. Use `sed 's/.*token=\([A-Za-z0-9_-]*\).*/\1/p'` on `/tmp/dsh-3090.log`.
 Consequence: token URL is `?token=<full>` → 303 `/` with `Set-Cookie: dsh-auth-<hash>=v1.<jwt>`; then GET `/` with the cookie returns the ~31868-byte shell page.
+
+## P7 metrics design  (decided 2026-09-25)
+Evidence: `agent/phases/P7-metrics-enrichment.md` traps 1–3 + `agent/ENV.md` metric dump.
+Consequence (frozen):
+- Spec/queue/ctx metrics are **server-wide**, not per-slot → one `metrics: MetricsSection | null`
+  on `HealthSnapshot`, rendered as a "Server" group, not a column on slot rows.
+- **PP/TG = derived from `_total` counter deltas** over the sample window (Δtokens/Δt), shown only
+  when something moved (Δt>0 and (Δtokens>0 or a slot is busy or requests_processing>0)); else "—".
+  Raw `*_tokens_seconds` gauges NOT rendered (read 0 while idle = trap #2).
+- **Draft acceptance**: lifetime (cumulative, labeled "lifetime") + last-completed-request delta
+  (labeled "last req"), both = Δaccepted/Δdraft_tokens across the id_task boundary; mean draft
+  length = Σ per_pos accepted / drafts.
+- **Capability** state machine in host memory: `unknown` (probe every tick until verdict) →
+  200=`yes`; 501/404/401=`no` (stop probing). `yes`+501/404 → `unknown` (re-probe; 2nd miss → `no`).
+  Restart detection = any tracked counter *decreases* (resets baselines + lastRequest) or endpoint
+  went down ≥3 ticks then recovered (verdict → `unknown`).
+- Engine state lives in the sampler (`host/index.ts`), fed from a new `collectHealth` return
+  `{ snapshot, metricsProbe }`; metrics probe is its own try/catch (never poisons snapshot).
+- Section is `null` when endpoint down or capability `no`/`unknown`-unproven → rows vanish, no hole.
+  Transient fetch failure while `yes`: keep last good values with `fresh:false` + `error` note.
