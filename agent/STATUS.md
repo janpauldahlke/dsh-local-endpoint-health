@@ -1,6 +1,6 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 — **P0 DONE** (`090a524`) · **P1 host+client slice DONE** (uncommitted)
+**Updated:** 2026-09-25 — **P0 DONE** (`090a524`) · **P1 host+client slice DONE** (`2069b8a`)
 **Phase:** **P1 (vertical slice)** complete — poll `/health` → route → client pane idle/unreachable
 
 Laws live in **`AGENTS.md`** (auto-loaded, survives compaction) — not repeated here.
@@ -25,7 +25,7 @@ Facts live in **`ENV.md`**; style in **`STYLE.md`**; packaging gotchas in **SKIL
 
 ## Next 3
 
-1. [ ] Commit P1 host + client slice (build artifacts + `src/` + `agent/` docs together).
+1. [x] Commit P1 host + client slice → `2069b8a` (build artifacts + `src/` + `agent/` docs).
 2. [ ] pending-human: browser — rightbar tab renders; live = idle + "updated N s ago" **advances**; dead port = unreachable + error + age; chat stays usable.
 3. [ ] P2 slot meat — extend `HealthSnapshot` with per-slot data (base fields never reinterpreted).
 
