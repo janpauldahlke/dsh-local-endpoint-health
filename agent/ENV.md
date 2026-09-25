@@ -69,6 +69,13 @@ If acceptance seems to require restarting primary dsh or llama: **stop, write th
 
 ## The endpoint being monitored (verified live)
 
+> ⚠ **STALE argv block (superseded 2026-09-25 ~09:00).** The human swapped the model for context
+> headroom: now **`…-IQ4_XS` MTP GGUF** (was Q6_K_P), **KV cache q8**, **~65k ctx** (so `-c 32768` and
+> `n_tokens_max` below are wrong), and `--reasoning on --reasoning-budget 2048` (not `off`). Spec-decode
+> MTP *was* already active here. **Re-read the truth from `/proc/$(pgrep -x llama-server)/cmdline`**
+> before relying on any number below. See `NOTES.md` §"Environment change". The probed *behavioral*
+> facts (auth, `/v1` trap, no timestamps, rate gauges read 0 idle) still hold; only the sizing is stale.
+
 `llama-server` from `/home/hagbard/dev/llama.cpp/build-cuda/bin/`, serving **Qwen3.8-27B Uncensored HauHau Q6_K_P**:
 
 ```

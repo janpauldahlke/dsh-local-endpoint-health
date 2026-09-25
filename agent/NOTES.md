@@ -78,3 +78,96 @@ Consequence (frozen):
   `{ snapshot, metricsProbe }`; metrics probe is its own try/catch (never poisons snapshot).
 - Section is `null` when endpoint down or capability `no`/`unknown`-unproven → rows vanish, no hole.
   Transient fetch failure while `yes`: keep last good values with `fresh:false` + `error` note.
+
+## P7 engine shape  (decided 2026-09-25)
+Evidence: `agent/NOTES.md` "P7 metrics design" + `src/host/promParse.ts` API.
+Consequence (frozen):
+- `src/host/metrics.ts` is pure (no I/O): `createMetricsState()`, `shouldFetchMetrics(state)`,
+  `advanceMetrics(state, probe, snapshot, nowMs) → MetricsSection | null`.
+- `MetricsProbe = { status: number | null, text: string | null, error: string | null }`;
+  `status: null` = fetch failed (error carries the reason), `text` set only on 2xx.
+- `collectHealth(origin, { apiKey, fetchMetrics })` → `{ snapshot, metricsProbe }`;
+  `fetchMetrics: false` ⇒ `metricsProbe: null` (skipped, not failed). Probe only when
+  /health is reachable (2xx/3xx), same guard as /slots. 401 uses the same apiKey.
+- Capability verdicts: 200 ⇒ `yes`; 501/404/401 ⇒ `no` (from `unknown`) or first miss from
+  `yes` (2nd consecutive ⇒ `no`); fetch failure from `unknown` ⇒ keep probing; any other
+  non-2xx while `yes` ⇒ stale section, capability unchanged.
+- Request boundary: busy slots (state `busy` + `idTask`) while slots available, else
+  `requests_processing > 0`. End ⇒ slot idle / id_task changed / (fallback) processing→0.
+  lastRequest = { start counters @ start tick, end counters @ end tick }.
+- Restart detection: any tracked counter decrease ⇒ reset baseline + lastRequest + activeTask
+  (capability stays `yes`); endpoint down ≥3 ticks then reachable ⇒ verdict `unknown`.
+- Rates: Δcounter/Δt over the whole window since last restart; shown only when Δt > 1 s and
+  something is moving (Δ > 0 or busy); else null (idle, never a false "0 tok/s" — trap #2).
+- Section `fresh: false` + `error` = keep last good values (transient failure while `yes`).
+  Section `null` = endpoint down, capability `no`, or nothing fetched yet.
+
+## P7 BLOCKER — the 12 red tests are a CONTRACT SPLIT, not a code bug (reviewed 2026-09-25 09:00)
+
+**Stop looping on these.** `npm test` = 68 tests, 56 pass, **12 fail — all in the uncommitted
+`test/metrics.test.mjs`**. `npx tsc --noEmit` **passes** and `node build.mjs` **succeeds**.
+So `src/host/metrics.ts` agrees with `src/shared/types.ts` and with the frozen "P7 engine shape"
+note above. The test file was written against a *different, richer* contract. Chasing the red
+tests breaks typecheck or contradicts NOTES — that is the loop. **Pick a side first, then edit.**
+
+The 12 split into four independent causes:
+
+**A. `{value, sample}` vs `number | null` — 6 tests (4, 19, 20, 21, 23, 24). THE REAL DECISION.**
+Tests assert `section.draftAcceptance.lifetime.value === 0.8` **and** `.sample === 10`
+(the denominator: draft tokens / drafts). Canonical `types.ts:141` says
+`draftAcceptance: { lifetime: number | null; lastRequest: number | null }`.
+The word `sample` appears **nowhere in `src/`** — only 7× in the test. Tests also expect
+`perPosLastRequest` to be `[]` where the impl yields `null`.
+→ **Human decision required** (do not guess):
+  - **(A1) Adopt `{value, sample}`** in `types.ts` + `metrics.ts` + client rows. Better product:
+    a bare "0.87" is untrustworthy, "0.87 (n=30)" is; P7 AC12 already demands the figure be
+    *labeled* lifetime-vs-delta, and `sample` is the natural denominator to show. Costs a
+    type change + client render pass. **Recommended.**
+  - **(A2) Downgrade the tests** to `number | null`. Zero impl churn, loses the denominator.
+  Either way: `null` (no data) vs `[]` (empty list) for `perPosLastRequest` must be settled too.
+
+**B. Fixture uses a state that does not exist — 2 tests (11, 13), plus one FALSE PASS (12).**
+`snap('down')` is used 6×. Canonical `EndpointState = 'unreachable' | 'idle' | 'unknown'`
+(`types.ts:17`) — there is **no `'down'`**. Impl tests `snapshot.state === 'unreachable'`, so the
+down-tick branch never fires. Mechanical fix: `snap('down')` → `snap('unreachable')`.
+⚠ Test 12 ("down 3 ticks then back") **passes for the wrong reason** — its counters go 103→10,
+which trips *restart* detection and yields the expected `rateWindowMs: 0`. Re-check it after the
+fixture fix; it may go red and need real down-tick fixtures.
+
+**C. Capability / skipped-probe semantics — 3 tests (3, 8, 9).** Tests contradict the frozen note:
+- Test 3 wants network-error-from-`unknown` ⇒ `'no'`; NOTES says "fetch failure from `unknown` ⇒
+  **keep probing**" and impl does that. Test is wrong per the recorded decision.
+- Tests 8+9 pass a probe / expect a stale section where impl returns `null`. Impl matches NOTES
+  ("Section `null` = … capability `no`"). Note the collector already guards with
+  `shouldFetchMetrics`, so a `no`-capability probe can't occur in production — but adding a
+  defensive early-return in `advanceMetrics` when `capability === 'no'` is cheap and honest.
+
+**D. Empty body with no prior section — 1 test (5).** Impl returns `null` (nothing to stale yet);
+test does `s1.fresh` on that `null` ⇒ **TypeError**, not an assertion failure. Test must expect
+`null`, or impl must synthesize an empty stale section.
+
+**Order to work:** decide A → fix B's fixture → fix C/D test expectations → rerun. Expect A to be
+the only one touching `src/`.
+
+## Environment change — RE-VERIFY, do not trust the old numbers (human, 2026-09-25 ~09:00)
+
+Human swapped the served model to gain context headroom:
+`Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-IQ4_XS` (MTP GGUF, was Q6_*) + **KV cache q8** +
+**~65k context** (was smaller). Motivation: the output-token slice was too small next to overhead.
+Consequences to re-probe once the server is back up:
+- `n_ctx` from `/props` and `llamacpp:n_tokens_max` from `/metrics` will differ from every number
+  recorded earlier (STATUS.md's "`contextUsed` ~22k" is **stale**). ENV.md's `-c 32768` is stale too.
+- **Correction to my own first draft of this note:** spec-decode MTP was **already active** on the old
+  server (ENV.md:78-79 `--spec-type draft-mtp --spec-draft-n-max 3`, `/slots` `speculative: true`).
+  So `spec_decode_*` is **not** new — don't "discover" it. What *is* new is the draft model's effective
+  acceptance at IQ4_XS + 65k ctx, so **re-probe the live series** before trusting any `draftAcceptance`
+  fixture, and confirm `draftMeanLen`'s denominator is `spec_decode_num_drafts_total` on this build.
+  Note the new GGUF is named `…-MTP-GGUF`, i.e. MTP is baked in — check whether `--spec-draft-model`
+  is still passed at all; if it isn't, the `spec_decode_*` series may **disappear**, which would make
+  cause A's whole `{value, sample}` question moot for live data (still worth fixing for other servers).
+- ENV.md's `--reasoning off --reasoning-budget 0` is also stale: the human has been running
+  `--reasoning on --reasoning-budget 2048`. Re-read argv from `/proc/<pid>/cmdline` rather than ENV.md.
+- Lower quant + bigger ctx ⇒ faster decode, slower/again-faster prefill; any hardcoded threshold
+  from P3 (`wedged`) was tuned on the old model. Re-derive, don't inherit.
+- Server was **down** at review time (no `llama-server` pid, `:8080` dead, `:3080`/`:3090` gone;
+  only ollama `:11434`). Nothing above is probe-verified yet.

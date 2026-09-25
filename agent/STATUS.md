@@ -1,42 +1,62 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 — **P0–P6 done, agent-verified** · P6 = `e93a772` · **P6 AC9 + P0/P1/P2 browser checks pending-human**
-**Phase:** complete through P6. Next phase = **P7 metrics**.
+**Updated:** 2026-09-25 09:20 — **P0–P6 done + committed** · **P7 in flight, UNCOMMITTED, blocked**
+**Phase:** **P7 metrics** — engine written, `tsc` + build **pass**, but **12 unit tests red**.
 
-Laws live in **`AGENTS.md`** (auto-loaded) — not repeated here. Facts in **`ENV.md`**; style in **`STYLE.md`**; packaging gotchas in SKILL "Corrections learned the hard way."
+Laws in **`AGENTS.md`** (auto-loaded); facts in **`ENV.md`**; style in `STYLE.md`; packaging gotchas in
+SKILL "Corrections learned the hard way."
 
-## Done — P6 (this run)
+## ⚠ BLOCKED — read `NOTES.md` §"P7 BLOCKER" before touching anything
 
-- `paneState.ts` refcounted open tracker (chip renders `null` while pane mounted); `slotState.ts` pure derivation
-  `{snapshot,error,lastAttempt,now} → {state,dot,label,title,stale}` consumed by **both** chip and pane (cannot disagree);
-  `SlotDockChip.tsx`; `index.tsx` registers dock seat → `conversation.composer.dock` (`id:'slot-health'`, order -10),
-  `onOpen → ctx.sidebarRight.openTab`; `SlotBody.tsx` calls `setPaneOpen` on mount/unmount.
-- **AC10 machine-verified:** served `:3090` bundle has the dock registration + chip code; `deriveChip` state→label map unit-tested
-  25/25 (repo total 36/36); gpu-monitor coexists (distinct slot id, same `order: -10` — no collision); API with key → `state:"idle"`.
-- **CLI moved on:** dsh checkout is now `0.1.6-alpha.2` — `--profile`/`--dump-config` are **global** flags
-  (`dsh --profile web --dump-config`), plugin mgmt is `dsh plugin --profile web list`. Plugin loads fine under the new CLI.
+The last run **looped** here. Root cause is a **contract split, not a code bug**:
 
-## Done — P2–P5 (`9b0f9ac`)
+- `npx tsc --noEmit` **passes** · `node build.mjs` **succeeds** · `npm test` = 68 → **56 pass / 12 fail**
+- All 12 are in the uncommitted `test/metrics.test.mjs`. The impl agrees with `src/shared/types.ts` and
+  the frozen NOTES "P7 engine shape"; the **tests were written against a richer contract.**
+- Chasing the red tests breaks typecheck or contradicts NOTES. **That is the loop. Decide first, edit second.**
 
-- P2 latch (`busySinceMs`/`busyAgeMs`/`ttftMs`, host-stamped — `/slots` has no timestamps) + per-slot rows/meter; LIVE-verified
-  idle→busy→idle on `:8080`. P3 wedged, P4 transport-vs-endpoint errors + `slotsError`, P5 env-key precedence + 10 s rotation retry.
+Four independent causes — full table + evidence in **NOTES.md §"P7 BLOCKER"**:
 
-## Environment facts (2026-09-25)
+- **A (the blocker, 6 tests) — `{value, sample}` vs `number | null`. Needs a human decision.** Tests want a
+  denominator (`draftAcceptance.lifetime.sample === 10`); `types.ts:141` has no `sample`, and that word
+  appears nowhere in `src/`. Recommended = adopt `{value, sample}` (AC12 already requires labeling
+  lifetime-vs-delta; a bare `0.87` is untrustworthy). **Don't guess.** Only cause touching `src/`.
+- **B/C/D (6 tests) — test-side only.** B: fixture's `snap('down')` isn't a canonical `EndpointState`
+  (use `'unreachable'`); note test 12 passes for the *wrong* reason. C: capability rules contradict the
+  frozen note. D: empty body ⇒ `null`, test derefs it ⇒ TypeError.
 
-- Sacred: `:3080` (dsh web, pid 24993), `:8080` (llama-server, key len 6 in env — never print), `:11434` (ollama).
-- Acceptance `:3090` = pid 282715, `LLAMA_API_KEY` set (API returns real slots, `contextUsed` ~22k); token in `/tmp/dsh-3090.log` line 1.
-- Bundle: 5 MB combo URL (see `/tmp/combo-url.txt`) — entry served via `??` combo only; single-file `client.js?rev=` 404s by design.
+## Environment DOWN + model changed — re-verify everything
+
+- At 09:00: **no `llama-server`**, `:8080` dead, `:3080`/`:3090` gone; only ollama `:11434`. Resolve pids
+  live (`pgrep -x llama-server`) — **never trust a pid in a doc.**
+- Model swapped for ctx headroom: `Qwen3.8-27B-…-IQ4_XS` **MTP** GGUF (was Q6_*), **KV q8**, **~65k ctx**.
+  Every earlier number is stale (incl. "`contextUsed` ~22k"). P3 `wedged` thresholds were tuned on the old
+  quant — re-derive, don't inherit.
+- Spec-decode MTP was **already** active on the old server (ENV.md:78) — `spec_decode_*` is not new, don't
+  "discover" it. But the new GGUF has MTP baked in, so check whether `--spec-draft-model` is still passed;
+  if not, those series may **disappear** and cause A becomes moot for live data. **Probe before trusting fixtures.**
+- ENV.md's argv block is stale (`-c 32768`, `--reasoning off`). Re-read `/proc/<pid>/cmdline`, not ENV.md.
+
+## Committed so far
+
+- `ddb4ca6` P7 promParse + 5 tests — **HEAD** · `e93a772` P6 chip · `9b0f9ac` P2–P5 · `2069b8a` P1 · `090a524` P0
+- **Uncommitted P7:** new `src/host/metrics.ts`, `test/metrics.test.mjs`, `lib/metrics.mjs`; modified
+  `types.ts`, `collect.ts`, `host/index.ts`, `promParse.ts`, `build.mjs`, `NOTES.md`
+- `:3090` bundle served via the `??` combo URL only (5 MB; `/tmp/combo-url.txt`) — single-file
+  `client.js?rev=` 404s **by design**. CLI `0.1.6-alpha.2`: `--profile`/`--dump-config` are global.
 
 ## Next 3
 
-1. [ ] Human morning check: P6 AC9 chip states + P0/P1/P2 pane carry-over (`ACCEPTANCE.md` → "Morning check").
-2. [ ] Fix any morning-check findings; commit.
-3. [ ] P7 metrics — fresh phase file from `agent/SPEC.md`.
+1. [ ] **Get the cause-A decision** (`{value,sample}` vs `number|null`); freeze it in NOTES.
+2. [ ] Fix B/C/D **test-side** expectations (`'down'`→`'unreachable'`; capability rules per NOTES; D expects `null`).
+3. [ ] Implement A → `npm test` green → **commit P7**. Then AC6/AC12 + pending-human below.
 
 ## pending-human
 
 - P0/P1: tab renders; idle + "updated N s ago" ticks.
-- P6 AC9: chip alone distinguishes busy / idle / error·auth / unreachable / stale; no jitter while typing; light+dark readable;
-  no collision with gpu-monitor chip.
+- P6 AC9: chip alone distinguishes busy / idle / error·auth / unreachable / stale; no jitter while typing;
+  light+dark readable; no gpu-monitor collision. Steps in `agent/ACCEPTANCE.md`.
+- P7 AC6 (not a tok/s clone) + AC12 (acceptance labeled lifetime vs delta'd) — needs the server up.
 
-Keep ≤55 lines. Rewrite, don't append.
+Keep ≤60 lines / ≤1k tokens (cap raised from 55 while P7 is blocked — the blocker section is the whole
+point of this file right now; drop it back to 55 once P7 is committed). Rewrite, don't append.
