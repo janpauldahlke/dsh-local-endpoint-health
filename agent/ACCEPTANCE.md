@@ -118,3 +118,25 @@ Machine-verified:
      GPU Monitor chip's exact chrome — same height (no `lineHeight: 1`), `fontWeight 600` + `0.03em` tracking,
      `currentColor 22%` border, `currentColor 6%` background wash, glowing dot while fresh. Next to the GPU
      pill in the dock below the composer, the two should read as the same size and shape (both themes).
+
+## P8 — Ollama backend + engine display (agent-verified 2026-09-25, `0b5fb60`)
+Machine-verified (hard rule honored: **no model start/load/pull on `:11434`** — read-only GETs only):
+- 115/115 tests (new `fingerprint` + `ollama` parser suites + P8 chip/`backendLabel` cases); tsc + build clean.
+- Live collector smoke: `:11434` → `state:"up-no-model"`, `backend:"ollama"`, `backendVersion:"0.22.1"`,
+  `ollama:{fresh:true, loaded:[], libraryCount:12}`, `lastError:null` (the 404 `/health` is no longer
+  reported as a fault); `deriveChip` → `label:"ollama · no model"`, green dot; pane engine tag `ollama 0.22.1`.
+- `:8080` (llama) unchanged: `state:"idle"`, `backend:"llama-cpp"` — llama pays zero extra probes.
+- Served `:3090` client bundle (44,597 B, HTTP 200) contains all P8 markers: `up-no-model`/`up-loaded`,
+  `no model`, `dsh.slotHealth.card.ollama`, `backendVersion`, `in library`, `llama.cpp`, `MODELS`.
+- `:3090` reconnected (env had changed: llama-server now pid **525954**, dsh `:3080` pid **526121**;
+  server pid **528259**, real `LLAMA_API_KEY` re-injected from llama-server environ, never printed):
+  route → `state:"idle"`, `backend:"llama-cpp"`, real slots, `slotsError:null`.
+
+- ⏳ pending-human (token URL, `/tmp/dsh-3090.log` line 1):
+  1. **Ollama pane**: set origin in `~/.dsh/profiles/web/cordis.patch.yml` to `http://127.0.0.1:11434` and
+     restart `:3090` → dock chip `ollama · no model` (green), pane header engine tag `· ollama 0.22.1`,
+     MODELS card accent `no model` + meta `12 in library` + "Nothing loaded" hint. Never an error state.
+  2. **Loaded model** (human loads on `:11434` — OOM hard rule): chip `ollama · loaded`, detail
+     `loaded · <name>`, MODELS card rows (name · family/size/quant + size / vram / keeps N m).
+  3. **Llama unchanged**: dock chip `llama · idle` / `llama · busy` (engine prefix), slot rows and
+     SERVER card as before (no regression).

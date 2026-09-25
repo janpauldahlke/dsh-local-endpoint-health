@@ -1,6 +1,6 @@
 # `dsh-slot-health` — Status
 
-**Updated:** 2026-09-25 ~15:45 — **P8 slices 1–5 DONE + verified live** (next commit).
+**Updated:** 2026-09-25 ~11:30 UTC — **P8 DONE (slices 1–6)** + `:3090` reconnected.
 Entry point for all P8 work: **`agent/specs/ollama-backend.md`**.
 
 > ## ⚠️ HARD RULE (human, critical — do not violate)
@@ -11,44 +11,41 @@ Entry point for all P8 work: **`agent/specs/ollama-backend.md`**.
 Laws in **`AGENTS.md`** (auto-loaded); facts in **`ENV.md`**; style in `STYLE.md`; packaging
 gotchas in SKILL "Corrections learned the hard way."
 
-## In flight — P8 Ollama (slices per spec §8)
+## P8 slices (spec §8) — all done
 
-1. [x] Slice 1: `src/shared/types.ts` — `Backend`, `backend`/`backendVersion`/`ollama` on
-   `HealthSnapshot`, `OllamaLoadedModel`/`OllamaSection`, `up-no-model`/`up-loaded` states.
-2. [x] Slice 2: `src/host/fingerprint.ts` — pure `fingerprintBackend`/`parseOllamaVersion`/
-   `looksLikeVllmMetrics`; wired into `collect.ts` (llama = /health oracle, 0 extra probes).
-3. [x] Slice 3: Ollama probe path — `/api/version` oracle → `/api/ps` + `/api/tags` →
-   `OllamaSection`; `src/host/ollama.ts` defensive parsers; `up-loaded`/`up-no-model` states.
-4. [x] Slice 4: engine display — dock chip prefix (`ollama · no model`), pane-top tag
-   (`· ollama 0.22.1`, spec §4.1), `backendWord`/`backendLabel` pure fns, STATE_COLOR/DOT.
-5. [x] Slice 5: Models card (`OllamaCard` in SlotBody; `{"models":[]}` → "no model loaded",
-   never an error) + library-count meta from /api/tags.
-6. [ ] Slice 6: README + ACCEPTANCE (ollama = Tier 2 "limited", vllm = stub "unverified").
+1. [x] Types: `Backend`, `backend`/`backendVersion`/`ollama`, `OllamaLoadedModel`/
+   `OllamaSection`, `up-no-model`/`up-loaded`.
+2. [x] `fingerprint.ts` (pure; llama oracle = 0 extra probes; rule order llama→ollama→vllm).
+3. [x] Ollama probe path (`/api/version` → `/api/ps` + `/api/tags`) + `ollama.ts` parsers.
+4. [x] Engine display: dock prefix (`ollama · no model`), pane-top tag (`· ollama 0.22.1`).
+5. [x] MODELS card (`{"models":[]}` → "no model", never error) + `12 in library` meta.
+6. [x] README (Supported engines) + ACCEPTANCE P8 record (agent-verified + pending-human).
 
 ## Done this session
 
-- P8 slices 1–5: fingerprint by shape (never guess), Ollama read-only probe path, honest
-  `up-no-model`/`up-loaded` states, engine in chip + pane, MODELS card. 115/115 tests; tsc
-  clean. **Live smoke (read-only):** `:11434` → `up-no-model`, backend `ollama` v0.22.1,
-  library 12; `:8080` → `idle`/`llama-cpp` unchanged (no regression).
-- `cb0a45c` P8 spec · `385cc06` dock chip chrome · `4812a74` REVIEW2 cards.
+- `0b5fb60` P8 slices 1–5: 115/115 tests, tsc clean. Live read-only smoke: `:11434` →
+  `up-no-model`/ollama 0.22.1/lib 12, chip `ollama · no model`; `:8080` → idle/llama-cpp.
+- This commit: slice 6 (README + ACCEPTANCE) + `:3090` reconnected: server pid **528259**,
+  real `LLAMA_API_KEY` re-injected (never printed); served bundle (44,597 B) has all P8
+  markers; route → idle + real slots. Token: `/tmp/dsh-3090.log` line 1.
 
-## Environment (re-probed ~15:45)
+## Environment (re-probed now — old pids are DEAD)
 
-- llama-server pid **419949** on `:8080` (key in env — never print). dsh `:3080` pid **440235**
-  (human's — never restart). Acceptance `:3090` pid **454046** (token: `/tmp/dsh-3090.log` line 1).
-- Ollama **live on `:11434`** (v0.22.1; `/api/tags` 12 models; `/api/ps` empty; no `/health`,
-  no `/metrics` — both 404). Read-only access only.
+- llama-server pid **525954** on `:8080` (key in its environ — never print). Ollama live
+  `:11434` (v0.22.1, 12 models, nothing loaded). dsh `:3080` pid **526121** (human's —
+  never restart; runs the OLD host bundle until human restarts it). Acceptance `:3090`
+  pid **528259** (token: `/tmp/dsh-3090.log` line 1). Profile patch origin = `:8080`
+  (`~/.dsh/profiles/web/cordis.patch.yml` wins over the checkout's).
 
 ## Next 3
 
-1. [ ] Commit P8 slices 1–5.
-2. [ ] Slice 6: README + ACCEPTANCE updates (Tier 2 honest + vLLM stub + pending-human list).
-3. [ ] Refresh acceptance `:3090` bundle so the human can see the chip/pane (no :3080 touch).
+1. [ ] pending-human: P8 UI checks (ACCEPTANCE.md) — esp. human loads an ollama model.
+2. [ ] If asked: point `:3090` at `:11434` (edit profile patch + restart) for Ollama UI.
+3. [ ] Watch for human `:3080` restart → new host bundle auto-applies.
 
 ## pending-human
 
-- REVIEW2 card-UX checklist (ACCEPTANCE.md). Real wedged observation. **Ollama model-load +
-  verify Models card** (agent must NOT load — OOM risk).
+- P8: ollama chip/pane/MODELS card (no-model now; loaded after human loads a model).
+- REVIEW2 card-UX checklist. Real wedged observation.
 
 Keep ≤60 lines / ≤1k tokens. Rewrite, don't append.
